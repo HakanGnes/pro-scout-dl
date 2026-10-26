@@ -82,6 +82,19 @@ def test_quality_checks(conn, fixture_dir):
     assert checks["events per match"].status == WARN
 
 
+def test_coordinate_tolerance(conn, fixture_dir):
+    load_wyscout(conn, fixture_dir, log=QUIET)
+    status = lambda: {c.name: c for c in run_checks(conn)}["coordinates within 0-100"].status  # noqa: E731
+    event_id = conn.execute("SELECT min(event_id) FROM events").fetchone()[0]
+
+    conn.execute("UPDATE events SET end_y = 101 WHERE event_id = %s", (event_id,))
+    assert status() == WARN   # recording artefact seen in the real data
+    conn.execute("UPDATE events SET start_x = -1 WHERE event_id = %s", (event_id,))
+    assert status() == WARN
+    conn.execute("UPDATE events SET end_y = 150 WHERE event_id = %s", (event_id,))
+    assert status() == FAIL   # genuinely broken
+
+
 def test_quality_fails_on_empty_database(conn):
     checks = run_checks(conn)
     assert checks[-1].status == FAIL

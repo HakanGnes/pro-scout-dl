@@ -15,6 +15,8 @@ OK, INFO, WARN, FAIL = "OK", "INFO", "WARN", "FAIL"
 MIN_EVENTS_PER_MATCH = 1000
 # Share of (match, team) scores that events must reproduce before we call it OK.
 SCORE_AGREEMENT_OK = 0.98
+# Coordinates this far past a pitch line are a known Wyscout recording artefact, not corruption.
+COORD_TOLERANCE = 1
 
 # Wyscout ids used below.
 SHOT, FREE_KICK = 10, 3
@@ -88,12 +90,7 @@ def run_checks(conn: psycopg.Connection) -> list[Check]:
         + (f"; {few:,} below {MIN_EVENTS_PER_MATCH:,}" if few else ""),
     ))
 
-    out_of_range = _one(conn, """
-        SELECT count(*) FROM events
-        WHERE start_x NOT BETWEEN 0 AND 100 OR start_y NOT BETWEEN 0 AND 100
-           OR end_x   NOT BETWEEN 0 AND 100 OR end_y   NOT BETWEEN 0 AND 100""")[0]
-    checks.append(Check("coordinates within 0-100", FAIL if out_of_range else OK,
-                        f"{out_of_range:,} events out of range" if out_of_range else "all events"))
+    checks.append(_coordinate_check(conn))
 
     wrong_team = _one(conn, """
         SELECT count(*) FROM events e
@@ -125,6 +122,27 @@ def run_checks(conn: psycopg.Connection) -> list[Check]:
 
     checks.append(_score_reconciliation(conn))
     return checks
+
+
+def _out_of_range(conn: psycopg.Connection, lo: int, hi: int) -> int:
+    return _one(conn, f"""
+        SELECT count(*) FROM events
+        WHERE start_x NOT BETWEEN {lo} AND {hi} OR start_y NOT BETWEEN {lo} AND {hi}
+           OR end_x   NOT BETWEEN {lo} AND {hi} OR end_y   NOT BETWEEN {lo} AND {hi}""")[0]
+
+
+def _coordinate_check(conn: psycopg.Connection) -> Check:
+    """0-100 is the pitch. Wyscout records a handful of balls just past a line as -1 or 101
+    (the next event then starts at the same point), so ±1 is a WARN; anything beyond is a FAIL.
+    The raw values are kept; feature code clips to 0-100."""
+    gross = _out_of_range(conn, -COORD_TOLERANCE, 100 + COORD_TOLERANCE)
+    if gross:
+        return Check("coordinates within 0-100", FAIL, f"{gross:,} events more than {COORD_TOLERANCE} unit outside")
+    slight = _out_of_range(conn, 0, 100)
+    if slight:
+        return Check("coordinates within 0-100", WARN,
+                     f"{slight:,} events at most {COORD_TOLERANCE} unit outside (kept raw; clip in features)")
+    return Check("coordinates within 0-100", OK, "all events")
 
 
 def _score_reconciliation(conn: psycopg.Connection) -> Check:
