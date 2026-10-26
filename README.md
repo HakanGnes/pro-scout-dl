@@ -13,7 +13,7 @@ capture that.
 | --- | --- | --- |
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
 | 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
-| 2 | Player-swap simulation + Streamlit page | in progress: simulator and page built |
+| 2 | Player-swap simulation + Streamlit page | done |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | planned |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
 | 5 | Tactics board, deployment, write-ups | planned |
@@ -182,8 +182,18 @@ team's xG, so the simulator swaps **player profiles**, not edges:
    changes little; a forward swapped for a goalkeeper lowers xG for ≥ 90% of teams; ranking forwards
    favours those who get the ball into the box.
 
-A candidate's profile comes from his own team, so results are a simulation under the models' assumptions,
-not a forecast.
+| Sanity check (criteria fixed in advance) | Result |
+| --- | --- |
+| Player swapped for himself | mean \|change\| 0.011 npxG per match over 294 players (limit 0.05) — pass |
+| Forward swapped for a goalkeeper | xG falls for 100% of 98 teams, median −0.104 — pass |
+| Ranking 160 forwards to replace L. Messi | Spearman with box-entry rate +0.94; every candidate lowers Barcelona's xG (best: E. Hazard, −0.040) — pass |
+
+**What the simulator values, and what it does not.** Shots are kept out of the features because the target
+is built from them, so the models value a player's contribution to *creating* chances: passing, touches and
+getting the ball into the box. Finishers who pass little are undervalued (replacing C. Stuani with a goalkeeper
+costs Girona only −0.005 npxG per match). The ranking also leans heavily on box entries, which the models adjust
+for minutes, position and role. A candidate's profile comes from his own team, so results are a simulation
+under the models' assumptions, not a forecast. Full report: [`reports/swap_sim/`](reports/swap_sim/).
 
 ## Tests
 
