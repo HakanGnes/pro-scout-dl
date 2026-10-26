@@ -155,6 +155,8 @@ international tournaments. So, for a team's xG in a match, *who passes to whom* 
 beyond each player's own passing profile. The pipeline can detect edge signal when it exists (a synthetic
 positive control in `tests/test_gnn.py`), so this is a property of the data and target, not a bug.
 Full report: [`reports/pass_network_gnn/`](reports/pass_network_gnn/).
+One follow-up with richer edge features is pre-registered, before being run, in
+[`docs/preregistration/2026-10-26-gnn-edge-features.md`](docs/preregistration/2026-10-26-gnn-edge-features.md).
 
 ## Tests
 
