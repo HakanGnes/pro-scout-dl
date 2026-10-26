@@ -21,27 +21,40 @@ ARCHITECTURES = ("deepsets", "gnn")
 
 
 class Normalizer:
-    """Per-feature standardisation fitted on the training graphs only."""
+    """Per-feature standardisation fitted on the training graphs only.
 
-    def __init__(self, graphs: list[TeamGraph]):
+    `edge_key` picks the edge features: "edge_attr" (Phase 1) or "edge_attr_rich"
+    (the pre-registered experiment).
+    """
+
+    def __init__(self, graphs: list[TeamGraph], edge_key: str = "edge_attr"):
+        if any(getattr(g, edge_key, None) is None for g in graphs):
+            raise SystemExit(f"Graphs have no {edge_key}; rebuild: python -m features.pass_networks build")
+        self.edge_key = edge_key
         x = np.concatenate([g.x for g in graphs])
-        e = np.concatenate([g.edge_attr for g in graphs])
+        e = np.concatenate([getattr(g, edge_key) for g in graphs])
         self.x_mean, self.x_std = x.mean(0), x.std(0) + 1e-6
         self.e_mean, self.e_std = e.mean(0), e.std(0) + 1e-6
 
+    @property
+    def edge_dim(self) -> int:
+        return len(self.e_mean)
+
     def state(self) -> dict:
-        return {k: getattr(self, k).tolist() for k in ("x_mean", "x_std", "e_mean", "e_std")}
+        return {k: getattr(self, k).tolist() for k in ("x_mean", "x_std", "e_mean", "e_std")} | {"edge_key": self.edge_key}
 
     @classmethod
     def from_state(cls, state: dict) -> "Normalizer":
         obj = cls.__new__(cls)
+        obj.edge_key = state.get("edge_key", "edge_attr")
         for k, v in state.items():
-            setattr(obj, k, np.asarray(v, dtype=np.float32))
+            if k != "edge_key":
+                setattr(obj, k, np.asarray(v, dtype=np.float32))
         return obj
 
     def to_data(self, g: TeamGraph) -> Data:
         x = (g.x - self.x_mean) / self.x_std
-        e = (g.edge_attr - self.e_mean) / self.e_std
+        e = (getattr(g, self.edge_key) - self.e_mean) / self.e_std
         return Data(
             x=torch.tensor(x, dtype=torch.float32),
             edge_index=torch.tensor(g.edge_index, dtype=torch.long),
@@ -67,11 +80,11 @@ class DeepSets(nn.Module):
 
 
 class PassGNN(nn.Module):
-    def __init__(self, hidden: int = 64, layers: int = 3, dropout: float = 0.1):
+    def __init__(self, hidden: int = 64, layers: int = 3, dropout: float = 0.1, edge_dim: int = len(EDGE_FEATURES)):
         super().__init__()
         self.encoder = _mlp(len(NODE_FEATURES), hidden, hidden, dropout)
         self.convs = nn.ModuleList(
-            GINEConv(_mlp(hidden, hidden, hidden, dropout), edge_dim=len(EDGE_FEATURES), train_eps=True)
+            GINEConv(_mlp(hidden, hidden, hidden, dropout), edge_dim=edge_dim, train_eps=True)
             for _ in range(layers)
         )
         self.norms = nn.ModuleList(nn.LayerNorm(hidden) for _ in range(layers))
@@ -90,7 +103,7 @@ class PassGNN(nn.Module):
 
 def make_net(arch: str, **kw) -> nn.Module:
     if arch == "deepsets":
-        return DeepSets(**{k: v for k, v in kw.items() if k != "layers"})
+        return DeepSets(**{k: v for k, v in kw.items() if k not in ("layers", "edge_dim")})
     if arch == "gnn":
         return PassGNN(**kw)
     raise ValueError(f"unknown architecture {arch!r}")

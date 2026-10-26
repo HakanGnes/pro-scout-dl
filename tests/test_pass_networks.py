@@ -179,3 +179,22 @@ def test_save_and_load(tmp_path):
     loaded, meta = dataset.load(tmp_path / "g.pkl")
     assert meta == {"source": "test"} and len(loaded) == 4
     np.testing.assert_array_equal(loaded[0].x, graphs[0].x)
+
+
+def test_rich_edges_extend_the_phase1_edges():
+    from features.pass_networks.graph import EDGE_FEATURES_RICH
+
+    events = [
+        ev(1, A, 12, x=60, y=20, ex=75, ey=30), ev(2, A, 13, x=70, y=40, ex=72, ey=40),    # 12 -> 13 ends in final third
+        ev(3, A, 12, x=80, y=50, ex=90, ey=50), ev(4, A, 13, x=90, y=50, ex=92, ey=52),    # 12 -> 13 ends in the box
+        ev(5, A, 11, x=10, y=50, ex=20, ey=50), ev(6, A, 12, type_id=7, sub=72),            # 11 -> 12 at the back
+    ]
+    g = graph_of(events)
+    assert g.edge_attr_rich.shape == (g.edge_index.shape[1], len(EDGE_FEATURES_RICH))
+    np.testing.assert_array_equal(g.edge_attr_rich[:, :2], g.edge_attr)   # Phase 1 features untouched
+    rich = {(g.player_ids[s], g.player_ids[t]): r for (s, t), r in zip(g.edge_index.T, g.edge_attr_rich)}
+    share_ft, share_box, start_x, start_y = rich[(12, 13)][2:]
+    assert share_ft == pytest.approx(1.0)          # both passes end at x >= 66.7
+    assert share_box == pytest.approx(0.5)         # one of the two ends in the box
+    assert start_x == pytest.approx((0.60 + 0.80) / 2) and start_y == pytest.approx((0.20 + 0.50) / 2)
+    assert list(rich[(11, 12)][2:4]) == [0.0, 0.0]

@@ -44,6 +44,9 @@ NODE_FEATURES = (
     "log_final_third", "log_box", "log_progressive", "log_touches",
 )
 EDGE_FEATURES = ("log_passes", "mean_progress_10m")
+# Pre-registered experiment (docs/preregistration/2026-10-26-gnn-edge-features.md): the same two
+# features plus where and what kind of passes form each link. Phase 1 models keep EDGE_FEATURES.
+EDGE_FEATURES_RICH = EDGE_FEATURES + ("share_final_third", "share_box", "mean_start_x", "mean_start_y")
 
 
 @dataclass
@@ -61,6 +64,7 @@ class TeamGraph:
     stats: dict[str, float] = field(default_factory=dict)  # graph-level features for the baseline
     target: float | None = None   # team non-penalty xG in the match
     split: str | None = None
+    edge_attr_rich: np.ndarray | None = None  # (n_edges, len(EDGE_FEATURES_RICH)); None in older datasets
 
 
 def _is_shot(e: Event) -> bool:
@@ -125,7 +129,8 @@ def _team_graph(events: list[Event], ctx: MatchContext, team_id: int, end: float
     acc = defaultdict(lambda: defaultdict(float))
     xs: dict[int, list[float]] = defaultdict(list)
     ys: dict[int, list[float]] = defaultdict(list)
-    edges: dict[tuple[int, int], list[float]] = defaultdict(lambda: [0.0, 0.0])
+    # per edge: count, sum of progress (m), ending in final third, ending in box, sum of start x, sum of start y
+    edges: dict[tuple[int, int], list[float]] = defaultdict(lambda: [0.0] * 6)
 
     for i, e in enumerate(events):
         if e.team_id != team_id or not e.player_id or _is_shot(e):
@@ -157,6 +162,10 @@ def _team_graph(events: list[Event], ctx: MatchContext, team_id: int, end: float
             edge = edges[(e.player_id, rec.player_id)]
             edge[0] += 1
             edge[1] += progress_m
+            edge[2] += ex >= FINAL_THIRD_X
+            edge[3] += _in_box(ex, ey)
+            edge[4] += sx / 100
+            edge[5] += sy / 100
 
     minutes = minutes_played(ctx, team_id, end)
     players = sorted({p for p, (m, _) in minutes.items() if m > 0} | set(acc))
@@ -192,11 +201,16 @@ def _team_graph(events: list[Event], ctx: MatchContext, team_id: int, end: float
     edge_attr = np.array(
         [[math.log1p(edges[k][0]), edges[k][1] / edges[k][0] / 10.0] for k in pairs], dtype=np.float32
     ).reshape(-1, len(EDGE_FEATURES))
+    rich = np.array(
+        [[math.log1p(edges[k][0]), edges[k][1] / edges[k][0] / 10.0,
+          edges[k][2] / edges[k][0], edges[k][3] / edges[k][0], edges[k][4] / edges[k][0], edges[k][5] / edges[k][0]]
+         for k in pairs], dtype=np.float32
+    ).reshape(-1, len(EDGE_FEATURES_RICH))
 
     graph = TeamGraph(
         match_id=ctx.match_id, team_id=team_id, competition=ctx.competition, gameweek=ctx.gameweek,
         is_international=ctx.is_international, side=ctx.sides.get(team_id),
-        player_ids=players, x=x, edge_index=edge_index, edge_attr=edge_attr,
+        player_ids=players, x=x, edge_index=edge_index, edge_attr=edge_attr, edge_attr_rich=rich,
     )
     graph.stats = graph_stats(players, acc, {k: edges[k] for k in pairs}, med_x, team_acc)
     return graph

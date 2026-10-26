@@ -164,8 +164,13 @@ international tournaments. So, for a team's xG in a match, *who passes to whom* 
 beyond each player's own passing profile. The pipeline can detect edge signal when it exists (a synthetic
 positive control in `tests/test_gnn.py`), so this is a property of the data and target, not a bug.
 Full report: [`reports/pass_network_gnn/`](reports/pass_network_gnn/).
-One follow-up with richer edge features is pre-registered, before being run, in
-[`docs/preregistration/2026-10-26-gnn-edge-features.md`](docs/preregistration/2026-10-26-gnn-edge-features.md).
+A pre-registered follow-up gave the edges one fixed second chance: six edge features instead of two (also where
+each link's passes start and how many end in the final third or the box), everything else unchanged. It did not
+change the conclusion: GNN-v2 − DeepSets −0.0045 MAE, 95% interval [−0.0132, +0.0045], and +0.0058 on World Cup
++ Euro. With intervals about ±0.009 wide, the test could detect gains of roughly 2% or more; smaller effects
+cannot be ruled out. Protocol (committed before the run):
+[`docs/preregistration/2026-10-26-gnn-edge-features.md`](docs/preregistration/2026-10-26-gnn-edge-features.md);
+result: [`reports/pass_network_gnn/prereg_edge_features.md`](reports/pass_network_gnn/prereg_edge_features.md).
 
 ## Player-swap simulation (Phase 2)
 

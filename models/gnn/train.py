@@ -46,7 +46,8 @@ def predict(net, loader, device) -> np.ndarray:
 def fit(arch: str, train_data, val_data, eval_data: dict, seed: int, device, cfg: dict, log=print) -> RunResult:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    net = make_net(arch, hidden=cfg["hidden"], layers=cfg["layers"], dropout=cfg["dropout"]).to(device)
+    edge_dim = train_data[0].edge_attr.shape[1]
+    net = make_net(arch, hidden=cfg["hidden"], layers=cfg["layers"], dropout=cfg["dropout"], edge_dim=edge_dim).to(device)
     opt = torch.optim.Adam(net.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     gen = torch.Generator().manual_seed(seed)
     train_loader = DataLoader(train_data, batch_size=cfg["batch_size"], shuffle=True, generator=gen)
@@ -79,10 +80,10 @@ def fit(arch: str, train_data, val_data, eval_data: dict, seed: int, device, cfg
     return result
 
 
-def run_neural(graphs: list[TeamGraph], archs, seeds, device, cfg: dict, log=print):
+def run_neural(graphs: list[TeamGraph], archs, seeds, device, cfg: dict, log=print, edge_key: str = "edge_attr"):
     """Train every (architecture, seed); return results and the fitted normaliser."""
     by_split = {s: [g for g in graphs if g.split == s] for s in ("train", "val", "test", "test_intl")}
-    norm = Normalizer(by_split["train"])
+    norm = Normalizer(by_split["train"], edge_key)
     data = {s: [norm.to_data(g) for g in gs] for s, gs in by_split.items()}
     eval_data = {s: data[s] for s in ("val", "test", "test_intl")}
     results = []

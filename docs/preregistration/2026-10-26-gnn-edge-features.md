@@ -1,7 +1,9 @@
 # Pre-registered experiment: richer edge features for the passing-network GNN
 
 - **Registered:** 2026-10-26, before running it. The commit that adds this file is the timestamp.
-- **Status:** registered, not yet run.
+- **Status:** run once on 2026-10-26, after this file was committed. Result: **not supported** — GNN-v2 − DeepSets
+  −0.0045 MAE, 95% interval [−0.0132, +0.0045]. Full result:
+  [`reports/pass_network_gnn/prereg_edge_features.md`](../../reports/pass_network_gnn/prereg_edge_features.md).
 
 ## Background
 
