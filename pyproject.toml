@@ -31,10 +31,11 @@ dl = [
     "torch>=2.2",
     "torch_geometric>=2.5",
 ]
+app = ["streamlit>=1.30"]
 dev = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["etl*", "features*", "models*"]
+include = ["etl*", "features*", "models*", "sim*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

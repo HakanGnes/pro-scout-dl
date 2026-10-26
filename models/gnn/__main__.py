@@ -86,11 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     for k, (m, lo, hi) in pairs.items():
         print(f"  {k}: {m:+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]")
 
-    # Save every seed of the GNN (Phase 2 needs the graph model) plus what it takes to rebuild it.
+    # Save every seed of both neural models (Phase 2 averages them) plus what it takes to rebuild them.
     args.model_out.parent.mkdir(parents=True, exist_ok=True)
     torch.save({
-        "arch": "gnn", "cfg": cfg, "normalizer": norm.state(),
-        "state_dicts": [r.state_dict for r in results if r.arch == "gnn"],
+        "format": 2, "cfg": cfg, "normalizer": norm.state(),
+        "archs": {a: [r.state_dict for r in results if r.arch == a] for a in ("deepsets", "gnn")},
         "chosen_on_validation": chosen, "dataset_meta": meta,
     }, args.model_out)
     args.model_out.with_suffix(".json").write_text(json.dumps({

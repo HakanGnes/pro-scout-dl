@@ -13,7 +13,7 @@ capture that.
 | --- | --- | --- |
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
 | 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
-| 2 | Player-swap simulation + Streamlit page | planned |
+| 2 | Player-swap simulation + Streamlit page | in progress: simulator and page built |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | planned |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
 | 5 | Tactics board, deployment, write-ups | planned |
@@ -51,6 +51,11 @@ python -m features.xg score       # store xG for every shot in the database
 # 5. Passing networks and the GNN (needs PyTorch: pip install -e ".[dl]")
 python -m features.pass_networks build   # 3,882 team-match graphs -> data/processed/
 python -m models.gnn evaluate            # baselines, DeepSets, GNN -> reports/pass_network_gnn/
+
+# 6. Player-swap simulation (needs pip install -e ".[app]")
+python -m sim build                      # player profiles + names -> data/processed/
+python -m sim check                      # sanity checks -> reports/swap_sim/
+streamlit run app/swap.py                # the interactive page
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -71,6 +76,10 @@ and change the port in `DATABASE_URL` to match.
 | `python -m features.xg train [--source raw]` | Extract shots, compare four xG models (leave one competition out), fit the best on all shots, save it to `models/artifacts/`, write `reports/xg/` |
 | `python -m features.xg score` | Predict xG for every shot and replace the `shots` table |
 | `python -m features.pass_networks build [--source raw]` | One passing network per team per match, its non-penalty xG as target, time-based split |
+| `python -m sim build` | Season profile of every player (rates per full match, position, role) plus names |
+| `python -m sim check` | Three sanity checks with pass criteria fixed in advance; exit code 1 if one fails |
+| `python -m sim swap --team T --out P [--in C \| --rank]` | One swap, or every regular player of the same role ranked |
+| `streamlit run app/swap.py` | Pick a team, a player and a candidate; see the change in team npxG |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
 ## Database
@@ -158,6 +167,24 @@ Full report: [`reports/pass_network_gnn/`](reports/pass_network_gnn/).
 One follow-up with richer edge features is pre-registered, before being run, in
 [`docs/preregistration/2026-10-26-gnn-edge-features.md`](docs/preregistration/2026-10-26-gnn-edge-features.md).
 
+## Player-swap simulation (Phase 2)
+
+What if a team had played someone else? Phase 1 found that the passing links add nothing measurable to a
+team's xG, so the simulator swaps **player profiles**, not edges:
+
+1. **Profile:** a player's league season pooled into rates per full match (passes made and received,
+   final-third and box entries, progressive passes, touches), pass accuracy, median position and role.
+2. **Swap:** in every league match the replaced player played, his node gets the candidate's profile scaled
+   to the same minutes; starter flag and passing links stay with the slot.
+3. **Prediction:** all ten saved networks (DeepSets + GNN, five seeds each) predict the team's npxG before
+   and after. The change is averaged over matches and networks, with its spread across both.
+4. **Sanity checks** (`python -m sim check`, criteria fixed before running): a player swapped for himself
+   changes little; a forward swapped for a goalkeeper lowers xG for ≥ 90% of teams; ranking forwards
+   favours those who get the ball into the box.
+
+A candidate's profile comes from his own team, so results are a simulation under the models' assumptions,
+not a forecast.
+
 ## Tests
 
 ```powershell
@@ -185,9 +212,10 @@ pro-scout-dl/
 │   ├── xg/          Phase 1: shot features, xG models, report, scoring
 │   └── pass_networks/  Phase 1: graphs, node/edge features, targets, split
 ├── models/gnn/      Phase 1: baselines, DeepSets, GNN, evaluation (models/artifacts/ is git-ignored)
+├── docs/            pre-registered experiments
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
-├── sim/             Phase 2: player-swap simulation
-├── app/             Streamlit
+├── sim/             Phase 2: player profiles, swap simulation, sanity checks
+├── app/             Streamlit page (swap.py)
 └── notebooks/
 ```
 

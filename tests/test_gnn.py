@@ -103,6 +103,15 @@ def test_cli_end_to_end(tmp_path):
     assert (report / "test_mae.png").stat().st_size > 10_000
 
     saved = torch.load(model, weights_only=False)
-    assert len(saved["state_dicts"]) == 2
+    assert {a: len(s) for a, s in saved["archs"].items()} == {"deepsets": 2, "gnn": 2}
     net = PassGNN(hidden=saved["cfg"]["hidden"], layers=saved["cfg"]["layers"], dropout=saved["cfg"]["dropout"])
-    net.load_state_dict(saved["state_dicts"][0])  # the saved weights rebuild the network
+    net.load_state_dict(saved["archs"]["gnn"][0])  # the saved weights rebuild the network
+
+    from models.gnn.ensemble import Ensemble
+
+    ens = Ensemble.load(model)
+    graphs, _ = dataset.load(ds_path)
+    preds = ens.predict(graphs[:50], batch_size=16)  # batching must not change predictions
+    assert preds.shape == (4, 50) and (preds >= 0).all()
+    np.testing.assert_allclose(preds, ens.predict(graphs[:50], batch_size=512), rtol=1e-5)
+    assert ens.names == ["deepsets-0", "deepsets-1", "gnn-0", "gnn-1"]
