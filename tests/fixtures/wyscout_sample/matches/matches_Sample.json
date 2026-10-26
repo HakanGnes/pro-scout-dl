@@ -1,0 +1,231 @@
+[
+ {
+  "status": "Played",
+  "roundId": 4405654,
+  "gameweek": 1,
+  "seasonId": 181150,
+  "dateutc": "2017-08-11 18:45:00",
+  "winner": 1609,
+  "venue": "Northfield Park",
+  "wyId": 9001,
+  "label": "Northfield FC - Southport Town, 2 - 1",
+  "date": "August 11, 2017 at 8:45:00 PM GMT+2",
+  "referees": [
+   {
+    "refereeId": 1,
+    "role": "referee"
+   }
+  ],
+  "duration": "Regular",
+  "competitionId": 364,
+  "teamsData": {
+   "1609": {
+    "scoreET": 0,
+    "coachId": 7009,
+    "side": "home",
+    "teamId": 1609,
+    "score": 2,
+    "scoreP": 0,
+    "hasFormation": 1,
+    "formation": {
+     "bench": [
+      {
+       "playerId": 104,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      }
+     ],
+     "lineup": [
+      {
+       "playerId": 110,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 101,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "1",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 102,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "1",
+       "yellowCards": "34"
+      },
+      {
+       "playerId": 103,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      }
+     ],
+     "substitutions": [
+      {
+       "playerIn": 104,
+       "playerOut": 103,
+       "minute": 70
+      }
+     ]
+    },
+    "scoreHT": 1
+   },
+   "1631": {
+    "scoreET": 0,
+    "coachId": 7031,
+    "side": "away",
+    "teamId": 1631,
+    "score": 1,
+    "scoreP": 0,
+    "hasFormation": 1,
+    "formation": {
+     "bench": [],
+     "lineup": [
+      {
+       "playerId": 210,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 201,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "1",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 202,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 203,
+       "ownGoals": "0",
+       "redCards": "88",
+       "goals": "null",
+       "yellowCards": "0"
+      }
+     ],
+     "substitutions": "null"
+    },
+    "scoreHT": 0
+   }
+  }
+ },
+ {
+  "status": "Played",
+  "roundId": 4405654,
+  "gameweek": 2,
+  "seasonId": 181150,
+  "dateutc": "2017-08-19 14:00:00",
+  "winner": 1609,
+  "venue": "Southport Stadium",
+  "wyId": 9002,
+  "label": "Southport Town - Northfield FC, 0 - 1",
+  "date": "August 19, 2017 at 4:00:00 PM GMT+2",
+  "referees": [],
+  "duration": "Regular",
+  "competitionId": 364,
+  "teamsData": {
+   "1631": {
+    "scoreET": 0,
+    "coachId": 7031,
+    "side": "home",
+    "teamId": 1631,
+    "score": 0,
+    "scoreP": 0,
+    "hasFormation": 1,
+    "formation": {
+     "bench": [],
+     "lineup": [
+      {
+       "playerId": 210,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 201,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 202,
+       "ownGoals": "1",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 203,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      }
+     ],
+     "substitutions": "null"
+    },
+    "scoreHT": 0
+   },
+   "1609": {
+    "scoreET": 0,
+    "coachId": 7009,
+    "side": "away",
+    "teamId": 1609,
+    "score": 1,
+    "scoreP": 0,
+    "hasFormation": 1,
+    "formation": {
+     "bench": [],
+     "lineup": [
+      {
+       "playerId": 110,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 101,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 102,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      },
+      {
+       "playerId": 104,
+       "ownGoals": "0",
+       "redCards": "0",
+       "goals": "null",
+       "yellowCards": "0"
+      }
+     ],
+     "substitutions": "null"
+    },
+    "scoreHT": 1
+   }
+  }
+ }
+]

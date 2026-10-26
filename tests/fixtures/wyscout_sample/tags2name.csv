@@ -1,0 +1,10 @@
+Tag,Label,Description
+101,goal,Goal
+102,own_goal,Own goal
+401,Left,Left foot
+402,Right,Right foot
+701,lost,Lost
+703,won,Won
+1201,position_goal_low_center,Low center
+1801,accurate,Accurate
+1802,not accurate,Not accurate

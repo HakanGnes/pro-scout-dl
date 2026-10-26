@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16
+    container_name: proscout-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-proscout}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-proscout}
+      POSTGRES_DB: ${POSTGRES_DB:-proscout}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the separate test database on first start (see db/init/).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    # Docker's default 64 MB /dev/shm is too small for parallel queries over ~3M events.
+    shm_size: 512mb
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=512MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
