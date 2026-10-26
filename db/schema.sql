@@ -138,6 +138,50 @@ CREATE TABLE IF NOT EXISTS event_tags (
 );
 CREATE INDEX IF NOT EXISTS event_tags_tag_idx ON event_tags (tag_id);
 
+-- ---------------------------------------------------------------- derived: xG (Phase 1)
+
+-- One row per shot (open play, direct free kick, penalty; shoot-outs excluded).
+-- Rebuilt in full by `python -m features.xg score`.
+CREATE TABLE IF NOT EXISTS shots (
+    event_id            BIGINT   PRIMARY KEY REFERENCES events ON DELETE CASCADE,
+    match_id            INTEGER  NOT NULL REFERENCES matches ON DELETE CASCADE,
+    team_id             INTEGER  NOT NULL,
+    player_id           INTEGER,
+    period              TEXT     NOT NULL,
+    minute              REAL     NOT NULL,
+    shot_type           TEXT     NOT NULL,     -- 'open_play' | 'free_kick' | 'penalty'
+    x                   REAL,                  -- 0–100, from the shooter's perspective
+    y                   REAL,
+    distance_m          REAL,                  -- to the centre of the goal
+    angle_rad           REAL,                  -- angle subtended by the goal mouth
+    is_header           BOOLEAN,
+    is_counter          BOOLEAN,
+    assist_type         TEXT,                  -- pass, cross, through_ball, dribble, rebound, ...
+    set_piece           TEXT,                  -- none, corner, free_kick, throw_in
+    same_player_prev    BOOLEAN,
+    seconds_since_prev  REAL,
+    score_diff          SMALLINT,              -- shooter's goal difference before the shot
+    coords_mirrored     BOOLEAN  NOT NULL DEFAULT false,
+    is_goal             BOOLEAN  NOT NULL,
+    xg                  REAL,
+    xg_model            TEXT                   -- '<model>@<trained_at>'
+);
+CREATE INDEX IF NOT EXISTS shots_match_team_idx ON shots (match_id, team_id);
+CREATE INDEX IF NOT EXISTS shots_player_idx     ON shots (player_id);
+
+-- Team xG per match: the target for the passing-network GNN.
+CREATE OR REPLACE VIEW team_match_xg AS
+SELECT mt.match_id,
+       mt.team_id,
+       mt.side,
+       mt.score                                                          AS goals,
+       count(s.event_id)                                                 AS shots,
+       coalesce(sum(s.xg), 0)                                            AS xg,
+       coalesce(sum(s.xg) FILTER (WHERE s.shot_type <> 'penalty'), 0)    AS npxg
+FROM match_teams mt
+LEFT JOIN shots s ON s.match_id = mt.match_id AND s.team_id = mt.team_id
+GROUP BY mt.match_id, mt.team_id, mt.side, mt.score;
+
 -- ---------------------------------------------------------------- ETL bookkeeping
 
 -- One row per source file: lets the loader skip files whose contents have not changed.

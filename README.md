@@ -12,7 +12,7 @@ capture that.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
-| 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | next |
+| 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | in progress: xG done |
 | 2 | Player-swap simulation + Streamlit page | planned |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | planned |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
@@ -37,12 +37,16 @@ docker compose ps            # wait until the db service is "healthy"
 # 2. Python environment
 py -m venv .venv
 .venv\Scripts\Activate.ps1   # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-pip install -e ".[dev]"
+pip install -e ".[dev,ml]"
 
 # 3. Data
 python -m etl download-wyscout    # from figshare, every file verified by MD5
 python -m etl load-wyscout        # ~5 minutes; re-runs skip unchanged files
 python -m etl quality             # exit code 1 if any check FAILs
+
+# 4. Expected goals
+python -m features.xg train       # evaluate, fit, save the model, write reports/xg/
+python -m features.xg score       # store xG for every shot in the database
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -60,6 +64,8 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl load-wyscout [--force]` | Load every raw file in its own transaction; unchanged files (same SHA-256) are skipped |
 | `python -m etl quality` | Run the data-quality report |
 | `python -m etl reset-db --yes` | Drop every project table |
+| `python -m features.xg train [--source raw]` | Extract shots, compare four xG models (leave one competition out), fit the best on all shots, save it to `models/artifacts/`, write `reports/xg/` |
+| `python -m features.xg score` | Predict xG for every shot and replace the `shots` table |
 
 ## Database
 
@@ -88,6 +94,29 @@ from goal-tagged events** (shots, free-kick shots and penalties, plus opponents'
 goals, excluding shoot-outs) and compares it with the official score: a strong signal that
 events and tags were loaded correctly.
 
+## Expected goals (Phase 1, step 1)
+
+Wyscout ships no xG, so the project builds its own: the target for the passing-network GNN
+(a team's xG in a match, view `team_match_xg`) comes from it.
+
+- **Data:** 45,869 shots and 5,052 goals. 25 shots that Wyscout recorded on the wrong half are mirrored back.
+- **Features:** only pre-shot information — location, header or foot, how the chance was created,
+  set-piece origin, counter-attack, tempo, minute, score. Outcome tags are excluded: Wyscout's
+  `opportunity` tag alone sits on 99% of goals and would leak the label.
+- **Validation:** leave one competition out; the model is picked by a rule fixed in advance
+  (lowest out-of-fold log loss).
+
+| Model | Log loss | Brier | ROC AUC | Calibration error |
+| --- | --- | --- | --- | --- |
+| Constant rate | 0.3300 | 0.0918 | – | 0.0063 |
+| Logistic: distance + angle | 0.2805 | 0.0798 | 0.772 | 0.0057 |
+| Logistic: all features | 0.2753 | 0.0786 | 0.785 | 0.0053 |
+| **LightGBM: all features** (in use) | **0.2750** | **0.0785** | **0.785** | **0.0039** |
+
+Context features improve clearly on location alone (95% interval of the log-loss gain excludes zero).
+LightGBM and the full logistic model are statistically tied; LightGBM is kept for its better calibration,
+which matters most when xG is summed per team. Full report: [`reports/xg/README.md`](reports/xg/README.md).
+
 ## Tests
 
 ```powershell
@@ -111,8 +140,9 @@ pro-scout-dl/
 │   └── wyscout/     parse.py (pure functions), load.py, download.py
 ├── tests/           parser and end-to-end tests, fictional sample data
 ├── data/            raw/ and processed/ (git-ignored)
-├── features/        Phase 1: xG, passing networks
-├── models/          Phase 1+: GNN, valuation, NLP
+├── features/xg/     Phase 1: shot features, xG models, report, scoring
+├── models/          Phase 1+: GNN, valuation, NLP (artifacts/ is git-ignored)
+├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player-swap simulation
 ├── app/             Streamlit
 └── notebooks/

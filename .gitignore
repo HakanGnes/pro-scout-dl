@@ -8,6 +8,7 @@ data/processed/*
 *.ckpt
 *.onnx
 mlruns/
+models/artifacts/
 
 # Environment
 .env
