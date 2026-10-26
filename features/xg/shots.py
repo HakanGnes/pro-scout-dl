@@ -1,9 +1,8 @@
 """Shot extraction and pre-shot features, independent of where events come from.
 
-`extract_shots` is a pure function over one match's events in time order. Two
-thin adapters feed it: `iter_matches_db` (PostgreSQL) and `iter_matches_raw`
-(the raw Wyscout JSON files), so the same logic runs in both places and the
-tests can check that they agree.
+`extract_shots` is a pure function over one match's events in time order. The
+events come from `features.events` (raw Wyscout JSON or PostgreSQL), so the same
+logic runs on both sources and the tests can check that they agree.
 
 Only information available *before* the ball is struck is used. Wyscout tags
 that describe the outcome are excluded on purpose:
@@ -18,13 +17,12 @@ import math
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import NamedTuple
+
+from features.events import Event, iter_matches_db, iter_matches_raw, sort_key  # noqa: F401 (re-exported)
 
 # Pitch size used to convert Wyscout's 0–100 percentages to metres.
 PITCH_LENGTH_M, PITCH_WIDTH_M, GOAL_WIDTH_M = 105.0, 68.0, 7.32
 
-PERIOD_ORDER = {"1H": 0, "2H": 1, "E1": 2, "E2": 3, "P": 4}
 PERIOD_START_MIN = {"1H": 0, "2H": 45, "E1": 90, "E2": 105}
 
 # Wyscout event / sub-event ids (eventid2name.csv).
@@ -51,20 +49,6 @@ REBOUND_WINDOW_S = 5.0
 SET_PIECE_WINDOW_S = 15.0
 
 SET_PIECES = {CORNER: "corner", FREE_KICK_PLAIN: "free_kick", FREE_KICK_CROSS: "free_kick", THROW_IN: "throw_in"}
-
-
-class Event(NamedTuple):
-    event_id: int
-    match_id: int
-    team_id: int
-    player_id: int | None
-    period: str
-    event_sec: float
-    type_id: int | None
-    subtype_id: int | None
-    x: int | None
-    y: int | None
-    tags: frozenset[int]
 
 
 @dataclass
@@ -169,10 +153,6 @@ def _is_goal(e: Event) -> bool:
 # ---------------------------------------------------------------- extraction
 
 
-def sort_key(e: Event) -> tuple:
-    return (PERIOD_ORDER.get(e.period, 9), e.event_sec, e.event_id)
-
-
 def extract_shots(events: list[Event]) -> list[Shot]:
     """All shots of one match (shoot-outs excluded), with pre-shot features."""
     events = sorted(events, key=sort_key)
@@ -227,64 +207,6 @@ def extract_shots(events: list[Event]) -> list[Shot]:
 
 def shots_to_records(shots: list[Shot]) -> list[dict]:
     return [asdict(s) for s in shots]
-
-
-# ---------------------------------------------------------------- sources
-
-
-def iter_matches_raw(raw_dir: Path, competitions: list[str] | None = None) -> Iterator[tuple[str, list[Event]]]:
-    """(competition file label, events of one match) from data/raw/wyscout/**/events_*.json."""
-    import ijson
-
-    from etl.wyscout.parse import EVENT_COLS, event_is_loadable, parse_event
-
-    idx = {c: i for i, c in enumerate(EVENT_COLS)}
-    for path in sorted(Path(raw_dir).rglob("events_*.json")):
-        label = path.stem.removeprefix("events_")
-        if competitions and label not in competitions:
-            continue
-        matches: dict[int, list[Event]] = defaultdict(list)
-        with path.open("rb") as f:
-            for raw in ijson.items(f, "item", use_float=True):
-                row, tags = parse_event(raw)
-                if not event_is_loadable(row):
-                    continue
-                matches[row[idx["match_id"]]].append(Event(
-                    row[idx["event_id"]], row[idx["match_id"]], row[idx["team_id"]], row[idx["player_id"]],
-                    row[idx["period"]], row[idx["event_sec"]], row[idx["type_id"]], row[idx["subtype_id"]],
-                    row[idx["start_x"]], row[idx["start_y"]], frozenset(tags),
-                ))
-        for match_id in sorted(matches):
-            yield label, matches.pop(match_id)
-
-
-_DB_QUERY = """
-    SELECT c.name, e.event_id, e.match_id, e.team_id, e.player_id, e.period, e.event_sec,
-           e.type_id, e.subtype_id, e.start_x, e.start_y,
-           coalesce((SELECT array_agg(t.tag_id) FROM event_tags t WHERE t.event_id = e.event_id), '{}')
-    FROM events e
-    JOIN matches m USING (match_id)
-    JOIN competitions c USING (competition_id)
-    ORDER BY e.match_id
-"""
-
-
-def iter_matches_db(conn) -> Iterator[tuple[str, list[Event]]]:
-    """(competition name, events of one match), streamed with a server-side cursor."""
-    current: list[Event] = []
-    label = None
-    with conn.transaction(), conn.cursor(name="xg_events") as cur:
-        cur.itersize = 50_000
-        cur.execute(_DB_QUERY)
-        for comp, *row in cur:
-            ev = Event(*row[:10], frozenset(row[10]))
-            if current and ev.match_id != current[0].match_id:
-                yield label, current
-                current = []
-            label = comp
-            current.append(ev)
-    if current:
-        yield label, current
 
 
 def collect_shots(matches: Iterator[tuple[str, list[Event]]]) -> list[dict]:

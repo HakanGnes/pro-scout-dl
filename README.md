@@ -12,7 +12,7 @@ capture that.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
-| 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | in progress: xG done |
+| 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
 | 2 | Player-swap simulation + Streamlit page | planned |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | planned |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
@@ -47,6 +47,10 @@ python -m etl quality             # exit code 1 if any check FAILs
 # 4. Expected goals
 python -m features.xg train       # evaluate, fit, save the model, write reports/xg/
 python -m features.xg score       # store xG for every shot in the database
+
+# 5. Passing networks and the GNN (needs PyTorch: pip install -e ".[dl]")
+python -m features.pass_networks build   # 3,882 team-match graphs -> data/processed/
+python -m models.gnn evaluate            # baselines, DeepSets, GNN -> reports/pass_network_gnn/
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -66,6 +70,8 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl reset-db --yes` | Drop every project table |
 | `python -m features.xg train [--source raw]` | Extract shots, compare four xG models (leave one competition out), fit the best on all shots, save it to `models/artifacts/`, write `reports/xg/` |
 | `python -m features.xg score` | Predict xG for every shot and replace the `shots` table |
+| `python -m features.pass_networks build [--source raw]` | One passing network per team per match, its non-penalty xG as target, time-based split |
+| `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
 ## Database
 
@@ -117,6 +123,39 @@ Context features improve clearly on location alone (95% interval of the log-loss
 LightGBM and the full logistic model are statistically tied; LightGBM is kept for its better calibration,
 which matters most when xG is summed per team. Full report: [`reports/xg/README.md`](reports/xg/README.md).
 
+## Passing networks (Phase 1, step 2)
+
+Each team in each match becomes a graph: players on the pitch are nodes, completed passes between
+them are weighted, directed edges. The target is the team's **non-penalty xG** in that match.
+
+- **Receivers are inferred:** Wyscout does not record who received a pass; the next event by a
+  teammate is taken (found for 99.0% of accurate passes).
+- **No leakage:** shots are excluded from every feature, since the target is computed from them.
+- **Node features (15):** role, minutes played, started or not, passes made and received, accuracy,
+  median position, final-third and box entries, progressive passes, touches.
+  **Edge features:** pass count and mean progression.
+- **Split by time, fixed in advance:** first 70% of each league's gameweeks for fitting (last 5 of those for
+  early stopping), last 30% for testing; World Cup and Euro as a separate test the models never see.
+- **Models:** training mean → ridge on pass volume → LightGBM on 19 graph statistics → DeepSets (same
+  player features, no edges) → GNN (GINE message passing over passes). The DeepSets–GNN comparison
+  isolates what the network structure adds.
+
+| Model (league test weeks) | MAE | R² | World Cup + Euro R² |
+| --- | --- | --- | --- |
+| Training mean | 0.596 | 0.00 | –0.04 |
+| Ridge: pass volume | 0.513 | 0.272 | 0.265 |
+| LightGBM: 19 graph statistics | 0.490 | 0.318 | 0.281 |
+| DeepSets: players, no edges | 0.468 | 0.365 | 0.371 |
+| **GNN: players + passes** (chosen on validation) | **0.466** | **0.363** | **0.348** |
+
+**What this shows.** Learned player representations clearly beat hand-crafted network statistics
+(GNN − LightGBM: −0.024 MAE, 95% interval [−0.037, −0.012]). But the GNN and DeepSets are
+statistically tied (−0.002, [−0.008, +0.005]), and DeepSets transfers slightly better to the
+international tournaments. So, for a team's xG in a match, *who passes to whom* adds nothing measurable
+beyond each player's own passing profile. The pipeline can detect edge signal when it exists (a synthetic
+positive control in `tests/test_gnn.py`), so this is a property of the data and target, not a bug.
+Full report: [`reports/pass_network_gnn/`](reports/pass_network_gnn/).
+
 ## Tests
 
 ```powershell
@@ -140,8 +179,10 @@ pro-scout-dl/
 │   └── wyscout/     parse.py (pure functions), load.py, download.py
 ├── tests/           parser and end-to-end tests, fictional sample data
 ├── data/            raw/ and processed/ (git-ignored)
-├── features/xg/     Phase 1: shot features, xG models, report, scoring
-├── models/          Phase 1+: GNN, valuation, NLP (artifacts/ is git-ignored)
+├── features/        events.py: shared event + match access (raw JSON or PostgreSQL)
+│   ├── xg/          Phase 1: shot features, xG models, report, scoring
+│   └── pass_networks/  Phase 1: graphs, node/edge features, targets, split
+├── models/gnn/      Phase 1: baselines, DeepSets, GNN, evaluation (models/artifacts/ is git-ignored)
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player-swap simulation
 ├── app/             Streamlit
