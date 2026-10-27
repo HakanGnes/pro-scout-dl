@@ -93,6 +93,10 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl probe-news` | Try candidate Turkish sports-news feeds; write the working ones to `etl/news/feeds.json` |
 | `python -m etl collect-news [--no-db]` | Fetch every feed once; append new items to `data/raw/news/` and insert them into `news_items` |
 | `python -m etl load-news` | Load the whole news archive into `news_items` (idempotent) |
+| `python -m etl probe-archive` | Sample the Internet Archive index of 8 Turkish sports sites: how many historical transfer headlines exist |
+| `python -m etl history-index` | Walk those sites' archive index (paged, resumable); keep transfer-looking article URLs |
+| `python -m etl history-titles [--limit N]` | Fetch each candidate's archived `<title>` and description (resumable; known clubs/players first) |
+| `python -m etl history-status` | Progress of the two history steps |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
 ## Database
@@ -266,6 +270,11 @@ python -m etl probe-news                                              # which fe
 python -m etl collect-news                                            # one run by hand
 powershell -ExecutionPolicy Bypass -File scripts\install_news_task.ps1  # then every hour
 ```
+
+**Historical headlines.** RSS only reaches forward, so past transfer stories (2018-2026) come from the
+Internet Archive. A probe of 8 sites found tens of thousands of transfer-looking article URLs, and the archived
+pages carry the real Turkish headline. `history-index` walks each site's archive index and `history-titles`
+fetches the headlines, both paced at one request every 1.5 s and resumable after Ctrl+C.
 
 Only titles, summaries, links and dates from the feeds are stored. They stay on the collecting machine
 for research and are not redistributed.

@@ -203,3 +203,63 @@ def test_fetch_retries_server_errors_only(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         rss.fetch("https://x.example/cdx", retries=2, wait=0)
     assert len(calls) == 3
+
+
+# ---------------------------------------------------------------- history
+
+
+def test_history_filters_and_page_text():
+    from etl.news.history import is_transfer_slug, page_text
+
+    assert is_transfer_slug("fenerbahce den golcuye resmi teklif")
+    assert is_transfer_slug("adanaspor abdurrahman canliyi kiraladi")
+    assert not is_transfer_slug("abdullah avci kazanarak devam etmek istiyoruz")      # 'istiyor' no longer counts
+    assert not is_transfer_slug("anadolu efes basketbol transfer yapti")            # other sports are dropped
+    html = ('<html><head><meta charset="windows-1254"><title>Abdullah Avcı Kouassi ile görüştü!</title>'
+            '<meta property="og:description" content="Görüşme olumlu geçti."></head></html>').encode("cp1254")
+    assert page_text(html) == ("Abdullah Avcı Kouassi ile görüştü!", "Görüşme olumlu geçti.")
+    assert page_text("<title>Öz başlık</title>".encode()) == ("Öz başlık", None)   # no charset: UTF-8
+
+
+def test_entity_matcher():
+    from etl.news.history import entity_matcher
+
+    match = entity_matcher([("Mauro", "Icardi"), ("Edin", "Dzeko")], ["Galatasaray Spor Kulübü", "FC Porto"])
+    assert match("galatasaray yeni stoper icin teklif yapti")
+    assert match("mauro icardi ile resmi anlasma")
+    assert not match("icardi buz pateni yapti")        # last name alone is not enough
+    assert match("porto dan imza")
+
+
+def test_history_index_and_titles_resume(tmp_path):
+    from etl.news import history
+
+    rows = [["timestamp", "original"],
+            ["20190702000000", "https://fanatik.com.tr/fb/fenerbahce-den-golcuye-resmi-teklif-111"],
+            ["20190701000000", "https://fanatik.com.tr/fb/fenerbahce-den-golcuye-resmi-teklif-111"],
+            ["20190703000000", "https://fanatik.com.tr/fb/derbide-gol-yagmuru-oldu-sahada-222"]]
+    calls = []
+
+    def fake(url, timeout=30, **_):
+        calls.append(url)
+        if "showNumPages" in url:
+            return b"3", url
+        if "/cdx/" in url:
+            return json.dumps(rows).encode(), url
+        return "<title>Fenerbahçe'den golcüye resmi teklif</title>".encode(), url
+
+    root = tmp_path / "history"
+    history.crawl_index(root, {"fanatik": "fanatik.com.tr/"}, pause=0, log=lambda _m: None, fetcher=fake,
+                        max_pages=2)
+    state = json.loads((root / "index_state.json").read_text())
+    assert state["fanatik"]["done"] == 2 and state["fanatik"]["kept"] == 4         # 2 blocks x 2 transfer rows
+    n_calls = len(calls)
+    history.crawl_index(root, {"fanatik": "fanatik.com.tr/"}, pause=0, log=lambda _m: None, fetcher=fake)
+    assert state["fanatik"]["pages"] == 3 and len(calls) == n_calls + 1            # resumes at block 3 only
+    cands = history.candidates(root)
+    assert len(cands) == 1 and cands[0]["ts"] == "20190701000000"                  # earliest capture kept
+    assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake) == 1
+    assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake) == 0   # nothing left
+    t = next(history.iter_jsonl([root / "titles.jsonl.gz"]))
+    assert t["title"] == "Fenerbahçe'den golcüye resmi teklif"
+    assert history.status(root, log=lambda _m: None)["with_title"] == 1

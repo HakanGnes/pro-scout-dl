@@ -9,6 +9,9 @@
   collect-news       fetch the feeds once; archive new items (and insert them if the database is up)
   load-news          load the whole news archive into PostgreSQL
   probe-archive      sample Internet Archive URLs of news sites: are historical headlines usable?
+  history-index      walk the sites' Internet Archive index; keep transfer-looking article URLs (resumable)
+  history-titles     fetch real titles of those URLs from the archive (resumable)
+  history-status     progress of the two history steps
   quality            run data-quality checks; exit code 1 on any FAIL
   reset-db --yes     drop every project table
 """
@@ -56,6 +59,17 @@ def main(argv: list[str] | None = None) -> int:
     pa = sub.add_parser("probe-archive", help="sample historical headlines from the Internet Archive")
     pa.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
 
+    hi = sub.add_parser("history-index", help="walk the Internet Archive index of the news sites (resumable)")
+    hi.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+    hi.add_argument("--pause", type=float, default=1.5, help="seconds between requests")
+    ht = sub.add_parser("history-titles", help="fetch archived titles of the candidate URLs (resumable)")
+    ht.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+    ht.add_argument("--transfermarkt-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
+    ht.add_argument("--pause", type=float, default=1.5, help="seconds between requests")
+    ht.add_argument("--limit", type=int, help="stop after this many pages")
+    hs = sub.add_parser("history-status", help="progress of history-index and history-titles")
+    hs.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+
     sub.add_parser("quality", help="run data-quality checks")
 
     rs = sub.add_parser("reset-db", help="drop every project table")
@@ -83,6 +97,24 @@ def main(argv: list[str] | None = None) -> int:
         args.raw_dir.mkdir(parents=True, exist_ok=True)
         (args.raw_dir / "archive_probe.json").write_text(_json.dumps(report, indent=1, ensure_ascii=False),
                                                          encoding="utf-8")
+        return 0
+    if args.command in ("history-index", "history-titles", "history-status"):
+        from .news import history
+        root = args.raw_dir / "history"
+        if args.command == "history-index":
+            history.crawl_index(root, pause=args.pause)
+            history.status(root)
+        elif args.command == "history-titles":
+            match = None
+            if (args.transfermarkt_dir / "players.csv.gz").exists():
+                from .transfermarkt.tables import read_raw
+                players = read_raw(args.transfermarkt_dir, "players")["name"].dropna()
+                clubs = read_raw(args.transfermarkt_dir, "clubs")["name"].dropna()
+                match = history.entity_matcher(((n.split()[0], n.split()[-1]) for n in players if " " in n), clubs)
+            history.fetch_titles(root, prioritise=match, limit=args.limit, pause=args.pause)
+            history.status(root)
+        else:
+            history.status(root)
         return 0
     if args.command == "collect-news":
         from .news.collect import collect
