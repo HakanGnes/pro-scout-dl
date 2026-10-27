@@ -14,7 +14,7 @@ capture that.
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
 | 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
 | 2 | Player-swap simulation + Streamlit page | done |
-| 3 | Market value: GBM vs. LSTM vs. Transformer | planned |
+| 3 | Market value: GBM vs. LSTM vs. Transformer | registered, running |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
 | 5 | Tactics board, deployment, write-ups | planned |
 
@@ -56,6 +56,12 @@ python -m models.gnn evaluate            # baselines, DeepSets, GNN -> reports/p
 python -m sim build                      # player profiles + names -> data/processed/
 python -m sim check                      # sanity checks -> reports/swap_sim/
 streamlit run app/swap.py                # the interactive page
+
+# 7. Market value (Phase 3)
+python -m etl download-transfermarkt     # Transfermarkt open data, ~60 MB, SHA-256 in manifest.json
+python -m etl load-transfermarkt         # ~30 s; tm_* tables
+python -m features.market_value build    # 136,942 player-anchor samples -> data/processed/
+python -m models.market_value run        # the pre-registered study -> reports/market_value/
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -80,6 +86,10 @@ and change the port in `DATABASE_URL` to match.
 | `python -m sim check` | Three sanity checks with pass criteria fixed in advance; exit code 1 if one fails |
 | `python -m sim swap --team T --out P [--in C \| --rank]` | One swap, or every regular player of the same role ranked |
 | `streamlit run app/swap.py` | Pick a team, a player and a candidate; see the change in team npxG |
+| `python -m etl download-transfermarkt [--force]` | Download the six Transfermarkt tables into `data/raw/transfermarkt/`, write `manifest.json` with sizes and SHA-256 |
+| `python -m etl load-transfermarkt [--force]` | Replace each `tm_*` table from its file in one transaction; unchanged files are skipped |
+| `python -m features.market_value build [--source raw]` | One sample per player and anchor date: 36-month history, static inputs, 12-month log value change as target |
+| `python -m models.market_value run [--device cuda]` | The pre-registered Phase 3 study: five models, registered outcomes, `reports/market_value/` |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
 ## Database
@@ -200,6 +210,24 @@ costs Girona only −0.005 npxG per match). The ranking also leans heavily on bo
 for minutes, position and role. A candidate's profile comes from his own team, so results are a simulation
 under the models' assumptions, not a forecast. Full report: [`reports/swap_sim/`](reports/swap_sim/).
 
+## Market value (Phase 3)
+
+Question: given everything known about a player on a date *t*, what will Transfermarkt say he is worth one
+year later, and does a deep sequence model reading the raw monthly history beat gradient boosting on
+hand-made summaries of it? The study was pre-registered before any model was trained:
+[`docs/preregistration/2026-10-27-market-value.md`](docs/preregistration/2026-10-27-market-value.md).
+
+- **Data:** the Transfermarkt open dataset (CC0), a snapshot frozen by its maintainers in July 2026. The run
+  refuses a dataset built from other files.
+- **Samples:** 24 anchor dates (1 January and 1 July, 2013–2025) right after Transfermarkt's revaluation rounds;
+  players who played in one of 14 European first divisions in the year before. 136,942 samples.
+- **Point in time:** every input uses records dated before *t*. The snapshot's current club, contract, caps
+  and peak value are never used, because for an older anchor they describe the future.
+- **Split by date:** train 2013–2020, validation 2021–22, test 2023–25; target windows never reach the
+  next split.
+- **Models:** persistence (value unchanged), an age curve, LightGBM, LSTM and Transformer, all from the
+  same 36-month table; 5 seeds each for the trained models.
+
 ## Tests
 
 ```powershell
@@ -220,13 +248,16 @@ suite against a PostgreSQL service container.
 pro-scout-dl/
 ├── db/              schema.sql, init/ (creates the test database)
 ├── etl/             command line, database helpers, quality checks
-│   └── wyscout/     parse.py (pure functions), load.py, download.py
+│   ├── wyscout/     parse.py (pure functions), load.py, download.py
+│   └── transfermarkt/  download.py, tables.py (column types, raw/db readers), load.py, quality.py
 ├── tests/           parser and end-to-end tests, fictional sample data
 ├── data/            raw/ and processed/ (git-ignored)
 ├── features/        events.py: shared event + match access (raw JSON or PostgreSQL)
 │   ├── xg/          Phase 1: shot features, xG models, report, scoring
-│   └── pass_networks/  Phase 1: graphs, node/edge features, targets, split
+│   ├── pass_networks/  Phase 1: graphs, node/edge features, targets, split
+│   └── market_value/   Phase 3: samples, 36-month histories, tabular summaries
 ├── models/gnn/      Phase 1: baselines, DeepSets, GNN, evaluation (models/artifacts/ is git-ignored)
+├── models/market_value/  Phase 3: baselines, LightGBM, LSTM, Transformer, bootstrap, report
 ├── docs/            pre-registered experiments
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player profiles, swap simulation, sanity checks
@@ -235,6 +266,10 @@ pro-scout-dl/
 ```
 
 ## Data and attribution
+
+Market values, appearances and transfers: [dcaribou/transfermarkt-datasets](https://github.com/dcaribou/transfermarkt-datasets)
+(CC0 1.0), built from [Transfermarkt](https://www.transfermarkt.com/). Not redistributed here;
+`download-transfermarkt` fetches the files and records their SHA-256.
 
 Event data: the Wyscout public dataset, figshare collection
 [doi:10.6084/m9.figshare.c.4415000](https://doi.org/10.6084/m9.figshare.c.4415000) —

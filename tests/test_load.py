@@ -96,5 +96,6 @@ def test_coordinate_tolerance(conn, fixture_dir):
 
 
 def test_quality_fails_on_empty_database(conn):
-    checks = run_checks(conn)
-    assert checks[-1].status == FAIL
+    checks = {c.name: c for c in run_checks(conn)}
+    assert checks["data present"].status == FAIL
+    assert checks["tm data present"].status == "WARN"  # Transfermarkt not loaded is a warning, not a failure

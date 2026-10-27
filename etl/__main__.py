@@ -3,6 +3,8 @@
   init-db            create tables and indexes (safe to re-run)
   download-wyscout   download the Wyscout public dataset from figshare
   load-wyscout       load the raw files into PostgreSQL (skips unchanged files)
+  download-transfermarkt  download the Transfermarkt open dataset (Phase 3)
+  load-transfermarkt      load the Transfermarkt files into PostgreSQL (skips unchanged files)
   quality            run data-quality checks; exit code 1 on any FAIL
   reset-db --yes     drop every project table
 """
@@ -12,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_WYSCOUT_DIR
+from .config import DEFAULT_TRANSFERMARKT_DIR, DEFAULT_WYSCOUT_DIR
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,9 +29,17 @@ def main(argv: list[str] | None = None) -> int:
     dl.add_argument("--only", nargs="+", metavar="NAME",
                     help="download only files whose name contains one of these words, e.g. --only events matches")
 
+    dt = sub.add_parser("download-transfermarkt", help="download the Transfermarkt open dataset")
+    dt.add_argument("--raw-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
+    dt.add_argument("--force", action="store_true", help="download again even if the files exist")
+
     ld = sub.add_parser("load-wyscout", help="load the raw files into the database")
     ld.add_argument("--raw-dir", type=Path, default=DEFAULT_WYSCOUT_DIR)
     ld.add_argument("--force", action="store_true", help="reload files even if unchanged")
+
+    lt = sub.add_parser("load-transfermarkt", help="load the Transfermarkt files into the database")
+    lt.add_argument("--raw-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
+    lt.add_argument("--force", action="store_true", help="reload files even if unchanged")
 
     sub.add_parser("quality", help="run data-quality checks")
 
@@ -41,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "download-wyscout":
         from .wyscout.download import download_wyscout
         download_wyscout(args.raw_dir, args.only)
+        return 0
+    if args.command == "download-transfermarkt":
+        from .transfermarkt.download import download_transfermarkt
+        download_transfermarkt(args.raw_dir, args.force)
         return 0
 
     from .db import connect, init_db, reset_db
@@ -56,6 +70,13 @@ def main(argv: list[str] | None = None) -> int:
             loaded = [r for r in results if r.status == "loaded"]
             print(f"Done: {len(loaded)} file(s) loaded, "
                   f"{sum(r.status == 'skipped' for r in results)} unchanged, "
+                  f"{sum(r.rows for r in loaded):,} rows, {sum(r.seconds for r in loaded):.0f}s.")
+        elif args.command == "load-transfermarkt":
+            from .transfermarkt.load import load_transfermarkt
+            init_db(conn)
+            results = load_transfermarkt(conn, args.raw_dir, force=args.force)
+            loaded = [r for r in results if r.status == "loaded"]
+            print(f"Done: {len(loaded)} file(s) loaded, {sum(r.status == 'skipped' for r in results)} unchanged, "
                   f"{sum(r.rows for r in loaded):,} rows, {sum(r.seconds for r in loaded):.0f}s.")
         elif args.command == "quality":
             from .quality import format_report, has_failures, run_checks

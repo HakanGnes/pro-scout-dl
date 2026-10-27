@@ -193,3 +193,66 @@ CREATE TABLE IF NOT EXISTS etl_loads (
     loaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (source, file_name)
 );
+
+-- ---------------------------------------------------------------- Transfermarkt (Phase 3)
+-- dcaribou/transfermarkt-datasets (CC0). Each table is replaced as a whole when its file changes.
+-- Only columns that are true at the time they describe are kept for players: the snapshot's
+-- current club, contract and caps would leak the future into historical samples.
+
+CREATE TABLE IF NOT EXISTS tm_competitions (
+    competition_id   TEXT PRIMARY KEY,           -- e.g. 'GB1'
+    name             TEXT NOT NULL,
+    type             TEXT,                       -- domestic_league, domestic_cup, international_cup, ...
+    sub_type         TEXT,
+    country_name     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tm_clubs (
+    club_id                  INTEGER PRIMARY KEY,
+    name                     TEXT NOT NULL,
+    domestic_competition_id  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tm_players (
+    player_id               INTEGER PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    date_of_birth           DATE,
+    position                TEXT,                -- Attack, Midfield, Defender, Goalkeeper, Missing
+    sub_position            TEXT,
+    foot                    TEXT,
+    height_in_cm            SMALLINT,
+    country_of_citizenship  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tm_player_valuations (
+    player_id            INTEGER NOT NULL,
+    date                 DATE    NOT NULL,
+    market_value_in_eur  BIGINT  NOT NULL,
+    current_club_id      INTEGER,
+    PRIMARY KEY (player_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS tm_appearances (
+    appearance_id   TEXT     PRIMARY KEY,        -- '<game_id>_<player_id>'
+    game_id         BIGINT   NOT NULL,
+    player_id       INTEGER  NOT NULL,
+    player_club_id  INTEGER,
+    date            DATE     NOT NULL,
+    competition_id  TEXT     NOT NULL,
+    yellow_cards    SMALLINT NOT NULL,
+    red_cards       SMALLINT NOT NULL,
+    goals           SMALLINT NOT NULL,
+    assists         SMALLINT NOT NULL,
+    minutes_played  SMALLINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tm_appearances_player_date_idx ON tm_appearances (player_id, date);
+
+CREATE TABLE IF NOT EXISTS tm_transfers (
+    player_id            INTEGER NOT NULL,
+    transfer_date        DATE    NOT NULL,       -- may lie in the future (pre-agreed moves, loan returns)
+    from_club_id         INTEGER NOT NULL,
+    to_club_id           INTEGER NOT NULL,
+    transfer_fee         NUMERIC,                -- EUR; NULL unknown, 0 free
+    market_value_in_eur  NUMERIC,
+    PRIMARY KEY (player_id, transfer_date, from_club_id, to_club_id)
+);

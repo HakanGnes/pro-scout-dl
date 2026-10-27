@@ -40,6 +40,13 @@ def _all(conn: psycopg.Connection, sql: str, params: tuple = ()) -> list[tuple]:
 
 
 def run_checks(conn: psycopg.Connection) -> list[Check]:
+    """Wyscout checks, then Transfermarkt checks."""
+    from .transfermarkt.quality import tm_checks
+
+    return _wyscout_checks(conn) + tm_checks(conn)
+
+
+def _wyscout_checks(conn: psycopg.Connection) -> list[Check]:
     checks: list[Check] = []
 
     counts = {
