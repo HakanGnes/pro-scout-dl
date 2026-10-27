@@ -14,7 +14,7 @@ capture that.
 | 0 | Infrastructure: PostgreSQL, Wyscout ETL, data-quality checks | done |
 | 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
 | 2 | Player-swap simulation + Streamlit page | done |
-| 3 | Market value: GBM vs. LSTM vs. Transformer | registered, running |
+| 3 | Market value: GBM vs. LSTM vs. Transformer | done |
 | 4 | Rumour credibility with BERTurk + fusion score | planned |
 | 5 | Tactics board, deployment, write-ups | planned |
 
@@ -227,6 +227,29 @@ hand-made summaries of it? The study was pre-registered before any model was tra
   next split.
 - **Models:** persistence (value unchanged), an age curve, LightGBM, LSTM and Transformer, all from the
   same 36-month table; 5 seeds each for the trained models.
+
+**Result** (one run, 31,220 test samples, 10,546 players; full report: [`reports/market_value/`](reports/market_value/)):
+
+| Model | Test MAE (log value) | Median abs. % error | Within ±20% |
+| --- | --- | --- | --- |
+| Persistence | 0.426 | 33.3% | 31.7% |
+| Age curve | 0.379 | 26.6% | 38.0% |
+| LightGBM | 0.372 | 27.4% | 38.9% |
+| LSTM | **0.365** | **25.4%** | **41.0%** |
+| Transformer | 0.366 | 25.8% | 40.6% |
+
+- **Primary outcome met:** Transformer − LightGBM −0.0060 MAE, 95% interval [−0.0076, −0.0044], resampling players.
+  The deep models are ahead at all five test dates.
+- **The gain is small.** It is 1.6% of LightGBM's error. The LSTM is slightly better still (Transformer − LSTM
+  +0.0014 [+0.0005, +0.0023]), so the sequence matters more than attention.
+- **Most of the predictable part is simple.** A median by age and position removes 0.047 of persistence's 0.426; the
+  best model removes 0.062. A year ahead, the typical prediction is still about 25% off.
+- **Weak spots:** players aged 21 or under (MAE ≈ 0.56 for every model); values Transfermarkt leaves unchanged
+  (14.5% of test samples, where persistence is exact and every model is worse); LightGBM falls behind the age curve in
+  Scotland, Russia and Ukraine.
+- **Limits:** players with no valuation in the following year are dropped (up to 24% at the 2024-07 anchor), so the
+  study says nothing about players leaving the data. Both LightGBM and the networks ran with fixed, untuned settings;
+  a tuned GBM could narrow the gap. Testing that would need its own pre-registration.
 
 ## Tests
 

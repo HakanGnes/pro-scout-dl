@@ -3,7 +3,9 @@
 - **Registered:** 2026-10-27, before any model in this study was trained. This file is committed
   together with the code that runs the study; that commit is the timestamp, and the run uses the code
   at that commit.
-- **Status:** registered, not run.
+- **Status:** run once on 2026-10-27 at commit `bf45e37`, after this file was committed with the code. Result:
+  **supported**: Transformer − LightGBM −0.0060 MAE, 95% interval [−0.0076, −0.0044]. Full result:
+  [`reports/market_value/README.md`](../../reports/market_value/README.md).
 - **Disclosure:** while exploring the data I computed, for every anchor date (test ones included),
   the number of samples, the mean and standard deviation of the target and the share of unchanged
   values. These need no fitting and do not depend on any model choice. Training speed was measured on
