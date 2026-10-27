@@ -8,6 +8,7 @@
   probe-news         find which candidate news feeds work; writes etl/news/feeds.json
   collect-news       fetch the feeds once; archive new items (and insert them if the database is up)
   load-news          load the whole news archive into PostgreSQL
+  probe-archive      sample Internet Archive URLs of news sites: are historical headlines usable?
   quality            run data-quality checks; exit code 1 on any FAIL
   reset-db --yes     drop every project table
 """
@@ -52,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     ln = sub.add_parser("load-news", help="load the news archive into the database")
     ln.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
 
+    pa = sub.add_parser("probe-archive", help="sample historical headlines from the Internet Archive")
+    pa.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+
     sub.add_parser("quality", help="run data-quality checks")
 
     rs = sub.add_parser("reset-db", help="drop every project table")
@@ -71,6 +75,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "probe-news":
         from .news.collect import probe
         return 0 if probe() else 1
+    if args.command == "probe-archive":
+        import json as _json
+
+        from .news.archive import probe as probe_archive
+        report = probe_archive()
+        args.raw_dir.mkdir(parents=True, exist_ok=True)
+        (args.raw_dir / "archive_probe.json").write_text(_json.dumps(report, indent=1, ensure_ascii=False),
+                                                         encoding="utf-8")
+        return 0
     if args.command == "collect-news":
         from .news.collect import collect
         if args.log_file:  # pythonw has no console: send everything to the log file

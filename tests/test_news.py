@@ -151,3 +151,55 @@ def test_fetch_retries_connection_errors(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         rss.fetch("https://x.example/missing", wait=0)
     assert len(calls) == 1  # a 404 is not retried
+
+
+def test_archive_slugs():
+    from etl.news.archive import fold, is_transfer, slug_text
+
+    assert fold("Fenerbahçe İcardi ŞAMPİYON ığ") == "fenerbahce icardi sampiyon ig"
+    assert slug_text("https://www.fotomac.com.tr/galatasaray/2023/07/12/icardi-ile-resmi-anlasma-saglandi-123456") \
+        == "icardi ile resmi anlasma saglandi"
+    assert slug_text("fanatik.com.tr/transfer-haberleri-12345.html") is None      # too few words
+    assert slug_text("https://www.aspor.com.tr/futbol/") is None                   # a section, not an article
+    assert is_transfer("icardi ile resmi anlasma saglandi") and not is_transfer("derbide gol yagmuru oldu sahada")
+
+
+def test_archive_probe_counts():
+    from etl.news import archive
+
+    rows = [["timestamp", "original"],
+            ["20190701000000", "https://fotomac.com.tr/fb/fenerbahce-den-golcuye-resmi-teklif-111111"],
+            ["20190705000000", "https://fotomac.com.tr/fb/fenerbahce-den-golcuye-resmi-teklif-111111"],
+            ["20210702000000", "https://fotomac.com.tr/fb/derbide-gol-yagmuru-oldu-222222"],
+            ["20190703000000", "https://fotomac.com.tr/futbol/"]]
+    page = "<html><head><title>Fenerbahçe'den golcüye resmi teklif</title></head></html>".encode()
+
+    def fake(url, timeout=30, **_):
+        if "showNumPages" in url:
+            return b"10\n", url
+        return (json.dumps(rows).encode(), url) if "/cdx/" in url else (page, url)
+
+    r = archive.probe({"fotomac": "fotomac.com.tr/"}, pages_per_site=2, pause=0, log=lambda _m: None,
+                      fetcher=fake)["fotomac"]
+    # two sampled blocks of ten, each with the same 2 articles (1 transfer): estimate = 1 / 2 * 10
+    assert (r["pages"], r["sampled"], r["articles"], r["transfer"], r["estimate"]) == (10, 2, 2, 1, 5)
+    assert r["by_year"] == {"2019": 1}
+    assert r["titles"] == ["Fenerbahçe'den golcüye resmi teklif"]
+
+
+def test_fetch_retries_server_errors_only(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    from etl.news import rss
+
+    calls = []
+
+    def gateway_timeout(req, timeout):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 504, "Gateway Time-out", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway_timeout)
+    with pytest.raises(urllib.error.HTTPError):
+        rss.fetch("https://x.example/cdx", retries=2, wait=0)
+    assert len(calls) == 3
