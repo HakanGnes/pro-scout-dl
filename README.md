@@ -15,7 +15,7 @@ capture that.
 | 1 | xG model, passing networks, first GNN vs. a gradient-boosting baseline | done |
 | 2 | Player-swap simulation + Streamlit page | done |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | done |
-| 4 | Rumour credibility with BERTurk + fusion score | planned |
+| 4 | Rumour credibility with BERTurk + fusion score | collecting news |
 | 5 | Tactics board, deployment, write-ups | planned |
 
 Every deep model is compared with a simple baseline, and the result is reported even
@@ -90,6 +90,9 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl load-transfermarkt [--force]` | Replace each `tm_*` table from its file in one transaction; unchanged files are skipped |
 | `python -m features.market_value build [--source raw]` | One sample per player and anchor date: 36-month history, static inputs, 12-month log value change as target |
 | `python -m models.market_value run [--device cuda]` | The pre-registered Phase 3 study: five models, registered outcomes, `reports/market_value/` |
+| `python -m etl probe-news` | Try candidate Turkish sports-news feeds; write the working ones to `etl/news/feeds.json` |
+| `python -m etl collect-news [--no-db]` | Fetch every feed once; append new items to `data/raw/news/` and insert them into `news_items` |
+| `python -m etl load-news` | Load the whole news archive into `news_items` (idempotent) |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
 ## Database
@@ -251,6 +254,22 @@ hand-made summaries of it? The study was pre-registered before any model was tra
   study says nothing about players leaving the data. Both LightGBM and the networks ran with fixed, untuned settings;
   a tuned GBM could narrow the gap. Testing that would need its own pre-registration.
 
+## Transfer news (Phase 4, collection)
+
+Rumour credibility needs news with a known outcome, and no labelled Turkish rumour dataset exists, so
+collection starts well before the model. An hourly Windows scheduled task fetches Turkish
+sports-news RSS feeds and appends every new item to a gzip JSONL archive in `data/raw/news/`. The archive is the
+source of truth and keeps working when Docker is off; `news_items` in PostgreSQL is loaded from it.
+
+```powershell
+python -m etl probe-news                                              # which feeds work -> etl/news/feeds.json
+python -m etl collect-news                                            # one run by hand
+powershell -ExecutionPolicy Bypass -File scripts\install_news_task.ps1  # then every hour
+```
+
+Only titles, summaries, links and dates from the feeds are stored. They stay on the collecting machine
+for research and are not redistributed.
+
 ## Tests
 
 ```powershell
@@ -272,7 +291,9 @@ pro-scout-dl/
 ├── db/              schema.sql, init/ (creates the test database)
 ├── etl/             command line, database helpers, quality checks
 │   ├── wyscout/     parse.py (pure functions), load.py, download.py
-│   └── transfermarkt/  download.py, tables.py (column types, raw/db readers), load.py, quality.py
+│   ├── transfermarkt/  download.py, tables.py (column types, raw/db readers), load.py, quality.py
+│   └── news/        feeds.py (+ feeds.json), rss.py (stdlib RSS/Atom parser), collect.py
+├── scripts/         install_news_task.ps1 (hourly Windows scheduled task)
 ├── tests/           parser and end-to-end tests, fictional sample data
 ├── data/            raw/ and processed/ (git-ignored)
 ├── features/        events.py: shared event + match access (raw JSON or PostgreSQL)

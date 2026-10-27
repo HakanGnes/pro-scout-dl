@@ -1,0 +1,46 @@
+{
+  "probed_at": "2026-10-27T10:01:54+00:00",
+  "feeds": {
+    "ntvspor": [
+      "https://www.ntv.com.tr/sporskor.rss"
+    ],
+    "fotomac": [
+      "https://www.fotomac.com.tr/rss/anasayfa.xml",
+      "https://www.fotomac.com.tr/rss/futbol.xml",
+      "https://www.fotomac.com.tr/rss/transfer.xml"
+    ],
+    "aspor": [
+      "https://www.aspor.com.tr/rss/anasayfa.xml",
+      "https://www.aspor.com.tr/rss/futbol.xml"
+    ],
+    "sporx": [
+      "https://www.sporx.com/_xml/rss.php"
+    ],
+    "trtspor": [
+      "https://www.trthaber.com/spor_articles.rss"
+    ],
+    "aa_spor": [
+      "https://www.aa.com.tr/tr/rss/default?cat=spor"
+    ],
+    "hurriyet_spor": [
+      "https://www.hurriyet.com.tr/rss/spor"
+    ],
+    "sabah_spor": [
+      "https://www.sabah.com.tr/rss/spor.xml",
+      "https://www.sabah.com.tr/rss/spor-haberleri.xml"
+    ],
+    "haberturk_spor": [
+      "https://www.haberturk.com/rss/spor.xml"
+    ],
+    "sozcu_spor": [
+      "https://www.sozcu.com.tr/feeds-rss-category-spor",
+      "https://www.sozcu.com.tr/rss/spor.xml"
+    ],
+    "cnnturk_spor": [
+      "https://www.cnnturk.com/feed/rss/spor/news"
+    ],
+    "mynet_spor": [
+      "https://www.mynet.com/rss/publisher-spor.rss"
+    ]
+  }
+}

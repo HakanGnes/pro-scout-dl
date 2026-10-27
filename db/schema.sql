@@ -256,3 +256,20 @@ CREATE TABLE IF NOT EXISTS tm_transfers (
     market_value_in_eur  NUMERIC,
     PRIMARY KEY (player_id, transfer_date, from_club_id, to_club_id)
 );
+
+-- ---------------------------------------------------------------- News (Phase 4)
+-- One row per article seen in a feed. The archive in data/raw/news/ is the source of truth;
+-- this table is loaded from it and can be rebuilt with `python -m etl load-news`.
+CREATE TABLE IF NOT EXISTS news_items (
+    item_id       TEXT        PRIMARY KEY,      -- sha1 of the canonical URL
+    feed          TEXT        NOT NULL,         -- source name, e.g. 'fotomac'
+    url           TEXT        NOT NULL,
+    title         TEXT        NOT NULL,
+    summary       TEXT,
+    published_at  TIMESTAMPTZ,
+    guid          TEXT,
+    categories    TEXT[],
+    fetched_at    TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS news_items_published_idx ON news_items (published_at);
+CREATE INDEX IF NOT EXISTS news_items_feed_idx      ON news_items (feed);

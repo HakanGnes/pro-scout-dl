@@ -5,6 +5,9 @@
   load-wyscout       load the raw files into PostgreSQL (skips unchanged files)
   download-transfermarkt  download the Transfermarkt open dataset (Phase 3)
   load-transfermarkt      load the Transfermarkt files into PostgreSQL (skips unchanged files)
+  probe-news         find which candidate news feeds work; writes etl/news/feeds.json
+  collect-news       fetch the feeds once; archive new items (and insert them if the database is up)
+  load-news          load the whole news archive into PostgreSQL
   quality            run data-quality checks; exit code 1 on any FAIL
   reset-db --yes     drop every project table
 """
@@ -14,7 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_TRANSFERMARKT_DIR, DEFAULT_WYSCOUT_DIR
+from .config import DEFAULT_NEWS_DIR, DEFAULT_TRANSFERMARKT_DIR, DEFAULT_WYSCOUT_DIR
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +44,14 @@ def main(argv: list[str] | None = None) -> int:
     lt.add_argument("--raw-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
     lt.add_argument("--force", action="store_true", help="reload files even if unchanged")
 
+    sub.add_parser("probe-news", help="try candidate news feeds, write etl/news/feeds.json")
+    cn = sub.add_parser("collect-news", help="fetch the news feeds once")
+    cn.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+    cn.add_argument("--no-db", action="store_true", help="only write the archive")
+    cn.add_argument("--log-file", type=Path, help="append output to this file (for the scheduled task)")
+    ln = sub.add_parser("load-news", help="load the news archive into the database")
+    ln.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
+
     sub.add_parser("quality", help="run data-quality checks")
 
     rs = sub.add_parser("reset-db", help="drop every project table")
@@ -56,6 +67,30 @@ def main(argv: list[str] | None = None) -> int:
         from .transfermarkt.download import download_transfermarkt
         download_transfermarkt(args.raw_dir, args.force)
         return 0
+
+    if args.command == "probe-news":
+        from .news.collect import probe
+        return 0 if probe() else 1
+    if args.command == "collect-news":
+        from .news.collect import collect
+        if args.log_file:  # pythonw has no console: send everything to the log file
+            args.log_file.parent.mkdir(parents=True, exist_ok=True)
+            sys.stdout = sys.stderr = args.log_file.open("a", encoding="utf-8", buffering=1)
+        conn = None
+        if not args.no_db:
+            from .db import connect, init_db
+            try:
+                conn = connect(args.database_url)
+                init_db(conn)
+            except Exception as e:  # noqa: BLE001 - the archive is enough; load-news catches up later
+                print(f"Database not reachable ({type(e).__name__}); archiving only. Run `python -m etl load-news` later.")
+                conn = None
+        try:
+            result = collect(args.raw_dir, conn=conn)
+        finally:
+            if conn is not None:
+                conn.close()
+        return 0 if not result["errors"] or result["items"] else 1
 
     from .db import connect, init_db, reset_db
 
@@ -78,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
             loaded = [r for r in results if r.status == "loaded"]
             print(f"Done: {len(loaded)} file(s) loaded, {sum(r.status == 'skipped' for r in results)} unchanged, "
                   f"{sum(r.rows for r in loaded):,} rows, {sum(r.seconds for r in loaded):.0f}s.")
+        elif args.command == "load-news":
+            from .news.collect import load_archive
+            init_db(conn)
+            load_archive(conn, args.raw_dir)
         elif args.command == "quality":
             from .quality import format_report, has_failures, run_checks
             init_db(conn)  # an empty schema reports "no data" instead of crashing

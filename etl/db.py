@@ -7,6 +7,7 @@ from .config import SCHEMA_PATH, database_url
 
 # Drop order respects foreign keys (CASCADE handles the rest).
 TABLES = (
+    "news_items",
     "tm_transfers",
     "tm_appearances",
     "tm_player_valuations",
