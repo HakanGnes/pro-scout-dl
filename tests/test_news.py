@@ -109,3 +109,45 @@ def test_collect_inserts_and_load_is_idempotent(conn, tmp_path):
     title, cats, published = conn.execute(
         "SELECT title, categories, published_at FROM news_items WHERE guid = 'fb-1'").fetchone()
     assert title.startswith("Fenerbahçe") and cats == ["Transfer"] and published.year == 2026
+
+
+def test_fetch_retries_connection_errors(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    from etl.news import rss
+
+    calls = []
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+        def geturl(self):
+            return "https://x.example/rss"
+
+    def flaky(req, timeout):
+        calls.append(req.full_url)
+        if len(calls) == 1:
+            raise urllib.error.URLError(ConnectionResetError(10054, "reset"))
+        return Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    assert rss.fetch("https://x.example/rss", wait=0) == (b"ok", "https://x.example/rss")
+    assert len(calls) == 2
+
+    def not_found(req, timeout):
+        calls.append(req.full_url)
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", not_found)
+    calls.clear()
+    with pytest.raises(urllib.error.HTTPError):
+        rss.fetch("https://x.example/missing", wait=0)
+    assert len(calls) == 1  # a 404 is not retried

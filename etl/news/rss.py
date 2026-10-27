@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
@@ -49,12 +51,21 @@ def canonical_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path, query, ""))
 
 
-def fetch(url: str, timeout: int = TIMEOUT) -> tuple[bytes, str]:
-    """Body and final URL (after redirects)."""
+def fetch(url: str, timeout: int = TIMEOUT, retries: int = 1, wait: float = 5.0) -> tuple[bytes, str]:
+    """Body and final URL (after redirects). Connection errors are retried; HTTP errors (404, 403) are not."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, "
                                                 "application/atom+xml, application/xml, text/xml, text/html;q=0.5"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read(), resp.geturl()
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read(), resp.geturl()
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            if attempt == retries:
+                raise
+            time.sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def clean_text(s: str | None) -> str:
