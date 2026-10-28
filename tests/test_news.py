@@ -283,3 +283,32 @@ def test_cut_off_archive_is_repaired(tmp_path):
         f.write(json.dumps({"url": "d"}) + "\n")
     rows, intact = c.read_jsonl_gz(path)
     assert [r["url"] for r in rows] == ["a", "b", "d"] and intact
+
+
+def test_history_url_key_and_parallel_retry(tmp_path):
+    from etl.news import history
+
+    assert history.url_key("http://www.fanatik.com.tr:80/amp/x-y-z-1?utm_source=a") == \
+        history.url_key("https://fanatik.com.tr/x-y-z-1/")
+    fail = {"b.example/": {1}}
+
+    def fake(url, timeout=30, **_):
+        site = "a.example/" if "a.example" in url else "b.example/"
+        if "showNumPages" in url:
+            return b"2", url
+        page = int(url.rsplit("page=", 1)[1])
+        if page in fail.get(site, set()):
+            raise OSError("503")
+        return json.dumps([["timestamp", "original"],
+                           ["2019", f"https://{site}fb/fenerbahce-resmi-teklif-yapti-{page}"]]).encode(), url
+
+    root = tmp_path / "h"
+    sites = {"a": "a.example/", "b": "b.example/"}
+    kept = history.crawl_index(root, sites, pause=0, workers=2, log=lambda _m: None, fetcher=fake)
+    state = json.loads((root / "index_state.json").read_text())
+    assert kept == {"a": 2, "b": 1} and [e["page"] for e in state["b"]["errors"]] == [1]
+    fail.clear()                                         # the archive recovers
+    kept = history.crawl_index(root, sites, pause=0, workers=2, log=lambda _m: None, fetcher=fake)
+    state = json.loads((root / "index_state.json").read_text())
+    assert kept == {"a": 2, "b": 2} and state["b"]["errors"] == []
+    assert len(history.candidates(root)) == 4

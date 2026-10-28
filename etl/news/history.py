@@ -16,6 +16,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import threading
 import time
 import urllib.error
 from collections.abc import Callable, Iterable
@@ -95,49 +96,91 @@ def _paced(fetcher, url: str, pause: float, log: Log, **kw):
     raise AssertionError("unreachable")
 
 
-def crawl_index(root: Path, sites: dict[str, str] = SITES, pause: float = 1.5, log: Log = print,
-                fetcher=fetch, max_pages: int | None = None) -> dict[str, int]:
-    """Walk every index block of every site; append transfer-looking article URLs. Resumes per block."""
+def _fetch_block(prefix: str, page: int, pause: float, log: Log, fetcher) -> list:
+    body, _ = _paced(fetcher, _query(prefix) + f"&fl=timestamp,original&output=json&pageSize=1&page={page}",
+                     pause, log, timeout=120, retries=3, wait=10.0)
+    return json.loads(body or b"[]")[1:]
+
+
+def _keep(site: str, rows: list) -> list[dict]:
+    return [{"site": site, "url": u, "ts": ts, "slug": text} for ts, u in rows
+            if (text := slug_text(u)) and is_transfer_slug(text)]
+
+
+def _append(out: Path, rows: list[dict]) -> None:
+    if rows:
+        with gzip.open(out, "at", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+
+
+def _crawl_site(site: str, prefix: str, root: Path, state: dict, save: Callable[[], None], pause: float, log: Log,
+                fetcher, max_pages: int | None) -> int:
     from .archive import num_pages
+
+    st = state[site]
+    if st["pages"] is None:
+        st["pages"] = num_pages(prefix, fetcher)
+        save()
+    out = root / site / "index.jsonl.gz"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    repair(out, log)
+    # blocks that failed in an earlier run (e.g. a 503) get one more try
+    for err in list(st["errors"]):
+        try:
+            new = _keep(site, _fetch_block(prefix, err["page"], pause, log, fetcher))
+        except Exception:  # noqa: BLE001 - still failing; leave it recorded
+            continue
+        _append(out, new)
+        st["kept"] += len(new)
+        st["errors"].remove(err)
+        save()
+        log(f"  {site:<16} block {err['page']:,} retried: ok")
+    last = min(st["pages"], max_pages) if max_pages else st["pages"]
+    started, first = time.perf_counter(), st["done"]
+    for page in range(first, last):
+        try:
+            new = _keep(site, _fetch_block(prefix, page, pause, log, fetcher))
+        except Exception as e:  # noqa: BLE001 - recorded; the next run retries it
+            st["errors"].append({"page": page, "error": f"{type(e).__name__}: {e}"[:160]})
+            new = []
+        _append(out, new)
+        st["done"], st["kept"] = page + 1, st["kept"] + len(new)
+        save()
+        if (page + 1) % 25 == 0 or page + 1 == last:
+            per = (time.perf_counter() - started) / (page + 1 - first)
+            log(f"  {site:<16} block {page + 1:,}/{st['pages']:,}  kept {st['kept']:,}  "
+                f"errors {len(st['errors'])}  (~{per * (last - page - 1) / 60:.0f} min left for this site)")
+    log(f"  {site:<16} done ({st['done']:,}/{st['pages']:,} blocks, {st['kept']:,} kept, {len(st['errors'])} errors)")
+    return st["kept"]
+
+
+def crawl_index(root: Path, sites: dict[str, str] = SITES, pause: float = 1.5, workers: int = 3, log: Log = print,
+                fetcher=fetch, max_pages: int | None = None) -> dict[str, int]:
+    """Walk every index block of every site, `workers` sites at a time; append transfer-looking article
+    URLs. Progress is saved after every block, so a stopped run resumes where it was."""
+    from concurrent.futures import ThreadPoolExecutor
 
     root.mkdir(parents=True, exist_ok=True)
     state_path = root / "index_state.json"
     state = _state(state_path)
-    kept: dict[str, int] = {}
-    for site, prefix in sites.items():
-        st = state.setdefault(site, {"pages": None, "done": 0, "kept": 0, "errors": []})
-        if st["pages"] is None:
-            st["pages"] = num_pages(prefix, fetcher)
+    for site in sites:
+        state.setdefault(site, {"pages": None, "done": 0, "kept": 0, "errors": []})
+    lock = threading.Lock()
+
+    def save() -> None:
+        with lock:
             _save_state(state_path, state)
-        out = root / site / "index.jsonl.gz"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        repair(out, log)
-        last = min(st["pages"], max_pages) if max_pages else st["pages"]
-        if st["done"] >= last:
-            log(f"  {site:<16} done ({st['done']:,}/{st['pages']:,} blocks, {st['kept']:,} kept)")
-            kept[site] = st["kept"]
-            continue
-        started, first = time.perf_counter(), st["done"]
-        for page in range(first, last):
-            try:
-                body, _ = _paced(fetcher, _query(prefix) + f"&fl=timestamp,original&output=json&pageSize=1&page={page}",
-                                 pause, log, timeout=120, retries=3, wait=10.0)
-                rows = json.loads(body or b"[]")[1:]
-            except Exception as e:  # noqa: BLE001 - note it and keep going; a re-run does not retry it
-                st["errors"].append({"page": page, "error": f"{type(e).__name__}: {e}"[:160]})
-                rows = []
-            new = [{"site": site, "url": u, "ts": ts, "slug": text} for ts, u in rows
-                   if (text := slug_text(u)) and is_transfer_slug(text)]
-            if new:
-                with gzip.open(out, "at", encoding="utf-8") as f:
-                    f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in new))
-            st["done"], st["kept"] = page + 1, st["kept"] + len(new)
-            _save_state(state_path, state)
-            if (page + 1) % 25 == 0 or page + 1 == last:
-                per = (time.perf_counter() - started) / (page + 1 - first)
-                log(f"  {site:<16} block {page + 1:,}/{st['pages']:,}  kept {st['kept']:,}  "
-                    f"errors {len(st['errors'])}  (~{per * (last - page - 1) / 60:.0f} min left for this site)")
-        kept[site] = st["kept"]
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {site: pool.submit(_crawl_site, site, prefix, root, state, save, pause, log, fetcher, max_pages)
+                   for site, prefix in sites.items()}
+    kept = {}
+    for site, fut in futures.items():
+        try:
+            kept[site] = fut.result()
+        except Exception as e:  # noqa: BLE001 - e.g. the block count could not be read; the next run retries
+            log(f"  {site:<16} stopped: {type(e).__name__}: {e}")
+            kept[site] = state[site]["kept"]
     return kept
 
 
@@ -147,12 +190,20 @@ def iter_jsonl(paths: Iterable[Path]):
             yield from read_jsonl_gz(p)[0]
 
 
+def url_key(url: str) -> str:
+    """The same article under http/https, www, :80, /amp/ or a tracking query is one article."""
+    u = url.split("#")[0].split("?")[0]
+    u = re.sub(r"^https?://(www\.)?", "", u.strip().lower()).replace(":80/", "/").replace("/amp/", "/")
+    return u.rstrip("/")
+
+
 def candidates(root: Path) -> list[dict]:
-    """One row per URL (earliest capture), across sites."""
+    """One row per article (its earliest capture, whose exact URL and time the archive can serve)."""
     best: dict[str, dict] = {}
     for r in iter_jsonl(sorted(root.glob("*/index.jsonl.gz"))):
-        if r["url"] not in best or r["ts"] < best[r["url"]]["ts"]:
-            best[r["url"]] = r
+        k = url_key(r["url"])
+        if k not in best or r["ts"] < best[k]["ts"]:
+            best[k] = r
     return sorted(best.values(), key=lambda r: (r["ts"], r["url"]))
 
 
@@ -185,8 +236,8 @@ def fetch_titles(root: Path, prioritise: Callable[[str], bool] | None = None, li
     """Fetch the archived page of each candidate not done yet; append title + description."""
     out = root / "titles.jsonl.gz"
     repair(out, log)
-    done = {r["url"] for r in iter_jsonl([out])}
-    todo = [c for c in candidates(root) if c["url"] not in done]
+    done = {url_key(r["url"]) for r in iter_jsonl([out])}
+    todo = [c for c in candidates(root) if url_key(c["url"]) not in done]
     if prioritise:
         todo.sort(key=lambda c: not prioritise(c["slug"]))   # stable: matched first, then by date
     if limit:

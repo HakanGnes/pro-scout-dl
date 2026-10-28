@@ -61,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
 
     hi = sub.add_parser("history-index", help="walk the Internet Archive index of the news sites (resumable)")
     hi.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
-    hi.add_argument("--pause", type=float, default=1.5, help="seconds between requests")
+    hi.add_argument("--pause", type=float, default=1.5, help="seconds between requests (per site)")
+    hi.add_argument("--workers", type=int, default=3, help="sites crawled at the same time")
     ht = sub.add_parser("history-titles", help="fetch archived titles of the candidate URLs (resumable)")
     ht.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
     ht.add_argument("--transfermarkt-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
@@ -102,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         from .news import history
         root = args.raw_dir / "history"
         if args.command == "history-index":
-            history.crawl_index(root, pause=args.pause)
+            history.crawl_index(root, pause=args.pause, workers=args.workers)
             history.status(root)
         elif args.command == "history-titles":
             match = None
