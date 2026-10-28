@@ -210,8 +210,22 @@ def candidates(root: Path) -> list[dict]:
 # ---------------------------------------------------------------- step 2: titles
 
 
+SUFFIX_MAX = 4  # Turkish case endings glued to names in slugs: galatasaray-dan, besiktas-in, batshuayi-nin
+
+
+def _stem_hit(token: str, names: set[str]) -> str | None:
+    """The name a slug token starts with, allowing a short case ending ('trabzonspordan' -> 'trabzonspor')."""
+    for cut in range(0, SUFFIX_MAX + 1):
+        stem = token[: len(token) - cut] if cut else token
+        if len(stem) < 4:
+            break
+        if stem in names:
+            return stem
+    return None
+
+
 def entity_matcher(players: Iterable[tuple[str, str]], clubs: Iterable[str]) -> Callable[[str], bool]:
-    """True if a slug names a known club (all its words) or a player (first and last name)."""
+    """True if a slug names a known club (its first distinctive word) or a player (first and last name)."""
     club_tokens = set()
     for name in clubs:
         words = [w for w in re.split(r"[^a-z0-9]+", fold(name)) if len(w) >= 4 and w not in ("club", "sports", "futbol")]
@@ -220,14 +234,20 @@ def entity_matcher(players: Iterable[tuple[str, str]], clubs: Iterable[str]) -> 
     by_last: dict[str, set[str]] = {}
     for first, last in players:
         f, la = fold(first or "").split(), fold(last or "").split()
-        if f and la and len(la[-1]) >= 3:
+        if f and la and len(la[-1]) >= 4:
             by_last.setdefault(la[-1], set()).add(f[0])
+    last_names = set(by_last)
 
     def match(slug: str) -> bool:
-        toks = set(slug.split())
-        if toks & club_tokens:
+        toks = slug.split()
+        tokset = set(toks)
+        if any(_stem_hit(t, club_tokens) for t in toks):
             return True
-        return any(t in by_last and by_last[t] & toks for t in toks)
+        for t in toks:
+            last = _stem_hit(t, last_names)
+            if last and by_last[last] & tokset:
+                return True
+        return False
     return match
 
 

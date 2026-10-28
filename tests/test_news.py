@@ -224,11 +224,15 @@ def test_history_filters_and_page_text():
 def test_entity_matcher():
     from etl.news.history import entity_matcher
 
-    match = entity_matcher([("Mauro", "Icardi"), ("Edin", "Dzeko")], ["Galatasaray Spor Kulübü", "FC Porto"])
+    match = entity_matcher([("Mauro", "Icardi"), ("Edin", "Dzeko")],
+                           ["Galatasaray Spor Kulübü", "FC Porto", "Trabzonspor Kulübü"])
     assert match("galatasaray yeni stoper icin teklif yapti")
     assert match("mauro icardi ile resmi anlasma")
     assert not match("icardi buz pateni yapti")        # last name alone is not enough
     assert match("porto dan imza")
+    assert match("trabzonspordan galatasaraya transfer calimi")      # case endings glued to the club name
+    assert match("mauro icardinin yeni adresi belli oldu")           # ... and to the player's last name
+    assert not match("gal ile anlasma")                              # too short to be a club stem
 
 
 def test_history_index_and_titles_resume(tmp_path):
