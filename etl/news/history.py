@@ -22,6 +22,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from .archive import SITES, WAYBACK, _query, fold, slug_text
+from .collect import read_jsonl_gz, repair
 from .rss import clean_text, fetch
 
 Log = Callable[[str], None]
@@ -110,6 +111,7 @@ def crawl_index(root: Path, sites: dict[str, str] = SITES, pause: float = 1.5, l
             _save_state(state_path, state)
         out = root / site / "index.jsonl.gz"
         out.parent.mkdir(parents=True, exist_ok=True)
+        repair(out, log)
         last = min(st["pages"], max_pages) if max_pages else st["pages"]
         if st["done"] >= last:
             log(f"  {site:<16} done ({st['done']:,}/{st['pages']:,} blocks, {st['kept']:,} kept)")
@@ -142,10 +144,7 @@ def crawl_index(root: Path, sites: dict[str, str] = SITES, pause: float = 1.5, l
 def iter_jsonl(paths: Iterable[Path]):
     for p in paths:
         if p.exists():
-            with gzip.open(p, "rt", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        yield json.loads(line)
+            yield from read_jsonl_gz(p)[0]
 
 
 def candidates(root: Path) -> list[dict]:
@@ -185,6 +184,7 @@ def fetch_titles(root: Path, prioritise: Callable[[str], bool] | None = None, li
                  pause: float = 1.5, log: Log = print, fetcher=fetch) -> int:
     """Fetch the archived page of each candidate not done yet; append title + description."""
     out = root / "titles.jsonl.gz"
+    repair(out, log)
     done = {r["url"] for r in iter_jsonl([out])}
     todo = [c for c in candidates(root) if c["url"] not in done]
     if prioritise:

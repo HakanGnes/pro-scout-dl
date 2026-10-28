@@ -263,3 +263,23 @@ def test_history_index_and_titles_resume(tmp_path):
     t = next(history.iter_jsonl([root / "titles.jsonl.gz"]))
     assert t["title"] == "Fenerbahçe'den golcüye resmi teklif"
     assert history.status(root, log=lambda _m: None)["with_title"] == 1
+
+
+def test_cut_off_archive_is_repaired(tmp_path):
+    import gzip as gz
+
+    path = tmp_path / "titles.jsonl.gz"
+    with gz.open(path, "at", encoding="utf-8") as f:
+        f.write(json.dumps({"url": "a"}) + "\n")
+    with gz.open(path, "at", encoding="utf-8") as f:
+        f.write(json.dumps({"url": "b"}) + "\n")
+    good = path.read_bytes()
+    third = gz.compress(b'{"url": "c", "title": "' + b"x" * 200 + b'"}\n')
+    path.write_bytes(good + third[: len(third) // 2])                 # third write cut off mid-member
+    rows, intact = c.read_jsonl_gz(path)
+    assert [r["url"] for r in rows] == ["a", "b"] and not intact
+    assert c.repair(path, log=lambda _m: None) == 2
+    with gz.open(path, "at", encoding="utf-8") as f:                  # appending works again
+        f.write(json.dumps({"url": "d"}) + "\n")
+    rows, intact = c.read_jsonl_gz(path)
+    assert [r["url"] for r in rows] == ["a", "b", "d"] and intact

@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import time
+import zlib
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -101,6 +102,7 @@ def collect(raw_dir: Path, feeds: dict[str, list[str]] | None = None, conn=None,
         day = datetime.now(timezone.utc)
         path = raw_dir / f"{day:%Y}" / f"{day:%m}" / f"{day:%Y-%m-%d}.jsonl.gz"
         path.parent.mkdir(parents=True, exist_ok=True)
+        repair(path, log)
         with gzip.open(path, "at", encoding="utf-8") as f:   # each run appends one gzip member
             for row in new:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -133,12 +135,40 @@ def insert(conn, rows: list[dict]) -> int:
         return max(cur.rowcount, 0)
 
 
-def iter_archive(raw_dir: Path):
-    for path in sorted(Path(raw_dir).rglob("*.jsonl.gz")):
+def read_jsonl_gz(path: Path) -> tuple[list[dict], bool]:
+    """Rows of an appended gzip JSONL file and whether it is intact.
+
+    A run killed mid-write (power cut, Ctrl+C at the wrong moment) can leave a cut-off last gzip
+    member; everything before it is still readable.
+    """
+    rows, intact = [], True
+    try:
         with gzip.open(path, "rt", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
-                    yield json.loads(line)
+                    rows.append(json.loads(line))
+    except (EOFError, OSError, zlib.error, json.JSONDecodeError, UnicodeDecodeError):
+        intact = False
+    return rows, intact
+
+
+def repair(path: Path, log: Log = print) -> int:
+    """Rewrite a damaged archive file with the rows that are still readable; returns rows kept."""
+    if not path.exists():
+        return 0
+    rows, intact = read_jsonl_gz(path)
+    if not intact:
+        tmp = path.with_suffix(".tmp")
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        tmp.replace(path)
+        log(f"  repaired {path.name}: a cut-off write was dropped, {len(rows):,} rows kept")
+    return len(rows)
+
+
+def iter_archive(raw_dir: Path):
+    for path in sorted(Path(raw_dir).rglob("*.jsonl.gz")):
+        yield from read_jsonl_gz(path)[0]
 
 
 def load_archive(conn, raw_dir: Path, log: Log = print) -> int:
