@@ -14,7 +14,7 @@ import pandas as pd
 
 from .entities import Gazetteer
 
-HORIZON = pd.Timedelta(days=365)
+HORIZON = pd.Timedelta(days=180)   # 90% of rumours that come true do so within 6 months
 GRACE = pd.Timedelta(days=30)     # a move recorded up to 30 days before the headline still counts
 
 # Stance from the folded headline. Announcements are checked first: "resmen imzayi atti" is not a rumour.

@@ -30,6 +30,7 @@ ml = [
 dl = [
     "torch>=2.2",
     "torch_geometric>=2.5",
+    "transformers>=4.46,<5",
 ]
 app = ["streamlit>=1.30"]
 dev = ["pytest>=8"]

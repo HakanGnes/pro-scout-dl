@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     ht.add_argument("--transfermarkt-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
     ht.add_argument("--pause", type=float, default=1.5, help="seconds between requests")
     ht.add_argument("--limit", type=int, help="stop after this many pages")
+    ht.add_argument("--workers", type=int, default=4, help="pages fetched at the same time")
+    ht.add_argument("--urls", type=Path, help="text file of URLs (one per line): fetch only these, e.g. "
+                    "data/processed/rumours/title_urls.txt from `python -m features.rumours claims`")
     hs = sub.add_parser("history-status", help="progress of history-index and history-titles")
     hs.add_argument("--raw-dir", type=Path, default=DEFAULT_NEWS_DIR)
 
@@ -112,7 +115,11 @@ def main(argv: list[str] | None = None) -> int:
                 players = read_raw(args.transfermarkt_dir, "players")["name"].dropna()
                 clubs = read_raw(args.transfermarkt_dir, "clubs")["name"].dropna()
                 match = history.entity_matcher(((n.split()[0], n.split()[-1]) for n in players if " " in n), clubs)
-            history.fetch_titles(root, prioritise=match, limit=args.limit, pause=args.pause)
+            only = None
+            if args.urls:
+                only = [u.strip() for u in args.urls.read_text(encoding="utf-8").splitlines() if u.strip()]
+            history.fetch_titles(root, prioritise=match, limit=args.limit, pause=args.pause, only=only,
+                                 workers=args.workers)
             history.status(root)
         else:
             history.status(root)

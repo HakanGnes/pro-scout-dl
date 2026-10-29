@@ -23,19 +23,26 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args(argv)
 
-    from .build import build
+    from .build import TEST_START, build, study_urls
 
     started = time.perf_counter()
     arts, claims = build(args.history_dir, args.transfermarkt_dir)
     args.out.mkdir(parents=True, exist_ok=True)
     arts.to_pickle(args.out / "articles.pkl")
     claims.to_pickle(args.out / "claims.pkl")
+    urls = study_urls(claims, arts) if len(claims) else []
+    (args.out / "title_urls.txt").write_text("\n".join(urls) + "\n", encoding="utf-8")
     print(f"{len(arts):,} articles, {claims['url'].nunique():,} with a claim, {len(claims):,} claims "
           f"({time.perf_counter() - started:.0f}s)")
+    src = arts["date_source"].value_counts()
+    print("Article dates from: " + ", ".join(f"{k} {v:,}" for k, v in src.items()))
     if len(claims):
-        by = claims.assign(year=claims["date"].dt.year).groupby(["year", "stance"])["label"].agg(["size", "mean"])
-        print(by.unstack("stance").to_string(float_format=lambda x: f"{x:.2f}"))
-    print(f"Wrote {args.out / 'articles.pkl'} and {args.out / 'claims.pkl'}")
+        # outcomes from the test period on stay hidden until the pre-registered run
+        seen = claims.assign(label=claims["label"].where(claims["date"] < TEST_START))
+        by = seen.assign(year=seen["date"].dt.year).groupby(["year", "stance"])["label"].agg(["size", "mean"])
+        by["size"] = seen.assign(year=seen["date"].dt.year).groupby(["year", "stance"]).size()
+        print(by.unstack("stance").to_string(float_format=lambda x: f"{x:.2f}", na_rep="-"))
+    print(f"Wrote articles.pkl, claims.pkl and title_urls.txt ({len(urls):,} study articles) to {args.out}")
     return 0
 
 

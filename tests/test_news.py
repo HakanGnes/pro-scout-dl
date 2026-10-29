@@ -250,7 +250,8 @@ def test_history_index_and_titles_resume(tmp_path):
             return b"3", url
         if "/cdx/" in url:
             return json.dumps(rows).encode(), url
-        return "<title>Fenerbahçe'den golcüye resmi teklif</title>".encode(), url
+        return ("<title>Fenerbahçe'den golcüye resmi teklif</title>"
+                '<meta property="article:published_time" content="2019-06-30T22:10:00+03:00">').encode(), url
 
     root = tmp_path / "history"
     history.crawl_index(root, {"fanatik": "fanatik.com.tr/"}, pause=0, log=lambda _m: None, fetcher=fake,
@@ -262,10 +263,12 @@ def test_history_index_and_titles_resume(tmp_path):
     assert state["fanatik"]["pages"] == 3 and len(calls) == n_calls + 1            # resumes at block 3 only
     cands = history.candidates(root)
     assert len(cands) == 1 and cands[0]["ts"] == "20190701000000"                  # earliest capture kept
-    assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake) == 1
+    assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake, only=["https://x.com/a"]) == 0
+    assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake,
+                                only=["http://www.fanatik.com.tr/fb/fenerbahce-den-golcuye-resmi-teklif-111/"]) == 1
     assert history.fetch_titles(root, pause=0, log=lambda _m: None, fetcher=fake) == 0   # nothing left
     t = next(history.iter_jsonl([root / "titles.jsonl.gz"]))
-    assert t["title"] == "Fenerbahçe'den golcüye resmi teklif"
+    assert t["title"] == "Fenerbahçe'den golcüye resmi teklif" and t["published"] == "2019-06-30T22:10:00+03:00"
     assert history.status(root, log=lambda _m: None)["with_title"] == 1
 
 
@@ -316,3 +319,11 @@ def test_history_url_key_and_parallel_retry(tmp_path):
     state = json.loads((root / "index_state.json").read_text())
     assert kept == {"a": 2, "b": 2} and state["b"]["errors"] == []
     assert len(history.candidates(root)) == 4
+
+
+def test_published_at():
+    from etl.news.history import published_at
+    assert published_at(b'<meta content="2021-04-15T09:27:00+03:00" itemprop="datePublished">') == "2021-04-15T09:27:00+03:00"
+    assert published_at(b'<script type="application/ld+json">{"datePublished" : "2020-09-07"}</script>') == "2020-09-07"
+    assert published_at(b'<meta name="pubdate" content="yesterday">') is None
+    assert published_at(b"<title>no date</title>") is None

@@ -41,6 +41,10 @@ _TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
 _DESC = re.compile(rb"<meta[^>]+(?:name|property)=[\"'](?:og:)?description[\"'][^>]*>", re.I)
 _CONTENT = re.compile(rb"content=[\"'](.*?)[\"']", re.I | re.S)
 _CHARSET = re.compile(rb"charset=[\"']?([A-Za-z0-9_\-]+)", re.I)
+_PUB_META = re.compile(rb"<meta[^>]+(?:name|property|itemprop)=[\"'](?:article:published_time|datePublished|pubdate|"
+                       rb"publishdate|publish-date|dc\.date)[\"'][^>]*>", re.I)
+_PUB_LD = re.compile(rb"\"datePublished\"\s*:\s*\"([^\"]+)\"")
+_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
 def is_transfer_slug(text: str) -> bool:
@@ -66,6 +70,21 @@ def page_text(body: bytes) -> tuple[str | None, str | None]:
     d = _DESC.search(head)
     c = _CONTENT.search(d.group(0)) if d else None
     return (clean_text(dec(t.group(1))) or None if t else None, clean_text(dec(c.group(1))) or None if c else None)
+
+
+def published_at(body: bytes) -> str | None:
+    """The publication time a page states about itself (meta tag or JSON-LD), as given; None if absent."""
+    head = body[:300_000]
+    m = _PUB_META.search(head)
+    c = _CONTENT.search(m.group(0)) if m else None
+    raw = c.group(1) if c else None
+    if raw is None:
+        j = _PUB_LD.search(head)
+        raw = j.group(1) if j else None
+    if raw is None:
+        return None
+    v = raw.decode("ascii", "ignore").strip()
+    return v if _ISO.match(v) else None
 
 
 # ---------------------------------------------------------------- step 1: index
@@ -252,33 +271,48 @@ def entity_matcher(players: Iterable[tuple[str, str]], clubs: Iterable[str]) -> 
 
 
 def fetch_titles(root: Path, prioritise: Callable[[str], bool] | None = None, limit: int | None = None,
-                 pause: float = 1.5, log: Log = print, fetcher=fetch) -> int:
-    """Fetch the archived page of each candidate not done yet; append title + description."""
+                 pause: float = 1.5, log: Log = print, fetcher=fetch, only: Iterable[str] | None = None,
+                 workers: int = 4) -> int:
+    """Fetch the archived page of each candidate not done yet; append title, description and publication time.
+
+    `only`: fetch just these URLs (compared with url_key), e.g. the articles a study uses.
+    `workers`: pages fetched at the same time (each worker waits `pause` after its request)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     out = root / "titles.jsonl.gz"
     repair(out, log)
     done = {url_key(r["url"]) for r in iter_jsonl([out])}
     todo = [c for c in candidates(root) if url_key(c["url"]) not in done]
+    if only is not None:
+        keep = {url_key(u) for u in only}
+        todo = [c for c in todo if url_key(c["url"]) in keep]
     if prioritise:
         todo.sort(key=lambda c: not prioritise(c["slug"]))   # stable: matched first, then by date
     if limit:
         todo = todo[:limit]
     log(f"{len(done):,} titles already fetched, {len(todo):,} to go"
         + (f" ({sum(prioritise(c['slug']) for c in todo):,} name a known club or player)" if prioritise else ""))
-    started, n = time.perf_counter(), 0
-    for c in todo:
+    started, lock, n = time.perf_counter(), threading.Lock(), [0]
+
+    def one(c: dict) -> None:
         row = {"url": c["url"], "site": c["site"], "ts": c["ts"], "slug": c["slug"]}
         try:
             body, _ = _paced(fetcher, f"{WAYBACK}/{c['ts']}id_/{c['url']}", pause, log, timeout=60, retries=2, wait=10.0)
             row["title"], row["description"] = page_text(body)
+            row["published"] = published_at(body)
         except Exception as e:  # noqa: BLE001 - recorded, so the URL is not fetched again
             row["error"] = f"{type(e).__name__}: {e}"[:160]
-        with gzip.open(out, "at", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        n += 1
-        if n % 100 == 0 or n == len(todo):
-            per = (time.perf_counter() - started) / n
-            log(f"  {n:,}/{len(todo):,} titles  ({per:.1f}s each, ~{per * (len(todo) - n) / 3600:.1f} h left)")
-    return n
+        with lock:
+            with gzip.open(out, "at", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            n[0] += 1
+            if n[0] % 100 == 0 or n[0] == len(todo):
+                per = (time.perf_counter() - started) / n[0]
+                log(f"  {n[0]:,}/{len(todo):,} titles  ({per:.1f}s each, ~{per * (len(todo) - n[0]) / 3600:.1f} h left)")
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        list(pool.map(one, todo))
+    return n[0]
 
 
 def status(root: Path, log: Log = print) -> dict:

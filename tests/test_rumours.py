@@ -71,8 +71,12 @@ def test_stance_press_patterns():
 
 def test_article_dates_and_slugs():
     from features.rumours.build import article_date, clean_slug
-    assert article_date("https://www.fotomac.com.tr/gs/2023/02/01/x", "20230203120000") == D("2023-02-01")
-    assert article_date("https://www.fanatik.com.tr/x-2169107", "20200907122546") == D("2020-09-07")
+    assert article_date("https://www.fotomac.com.tr/gs/2023/02/01/x", "20230203120000") == (D("2023-02-01"), "url")
+    assert article_date("https://www.fanatik.com.tr/x-2169107", "20200907122546") == (D("2020-09-07"), "capture")
+    assert article_date("https://www.sporx.com/x", "20180101120000", "2017-07-13 20:21:24") == (D("2017-07-13"),
+                                                                                                "published")
+    assert article_date("https://www.sporx.com/x", "20180101120000", "2019-01-01")[1] == "capture"   # after capture
+    assert article_date("https://www.sporx.com/x", "20180101120000", "garbage")[1] == "capture"
     assert clean_slug("abdulkadir icin teklif sxhbq981424sxq") == "abdulkadir icin teklif"
     assert clean_slug("feghouli den aciklama 5cf403f6237d8a159cbc784e 2043608") == "feghouli den aciklama"
     assert clean_slug("u21 takimina 3 transfer") == "u21 takimina 3 transfer"
