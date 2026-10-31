@@ -138,6 +138,7 @@ seed 0, paired.
 
 - Stance and linking on 100 fresh hand-labelled headlines (2018–2024, not used to write any rule):
   precision of the rumour stance, share of correct player and of correct target club.
+  *Done 2026-10-31 on 237 such headlines: [`reports/rumours/checks.md`](../../reports/rumours/checks.md).*
 
 ## Rules
 
