@@ -3,8 +3,9 @@
 - **Registered:** 2026-10-29, before any model in this study was trained on real data. This file is
   committed together with the code that runs the study; that commit is the timestamp, and the run uses
   the code at that commit.
-- **Status:** registered, not yet run. The run waits for the archived pages of the study's articles
-  (publication dates, see *Dates*).
+- **Status:** run once on 2026-10-31 at commit `4acbe6f`. Result: **supported**, narrowly:
+  AUC(fusion) − AUC(metadata) +0.0154, 95% interval [+0.0009, +0.0339]. Full result:
+  [`reports/rumours/README.md`](../../reports/rumours/README.md).
 - **Disclosure — what was seen before registering:**
   - Per year and stance, the share of claims that came true, for every year 2011–2026, with an
     earlier 365-day horizon (2025 rumours: 23%). With the registered 180-day horizon, the shares for

@@ -1,0 +1,243 @@
+{
+ "prereg": "docs/preregistration/2026-10-29-rumour-credibility.md",
+ "commit": "4acbe6f",
+ "finished": "2026-10-31T14:45:39+00:00",
+ "inputs_sha256": {
+  "history/aspor/index.jsonl.gz": "381297bbf064e308d55a7ebe0927cb1c90933226bd846f6dd446f0cd80598770",
+  "history/fanatik/index.jsonl.gz": "e382c02d9158ed8d9fae6584f1ba8c63a397de5e6c99fa5c4694d37fefa12893",
+  "history/fotomac/index.jsonl.gz": "20f08cdb129e7140dd71e4448a380ebee524e65ccbf82559e18a25d14567abfa",
+  "history/hurriyet_spor/index.jsonl.gz": "184f57a48ad27a699bbc21eb9225f855aebb2864475aee7fabf4062a9b2448db",
+  "history/milliyet_skorer/index.jsonl.gz": "78f9633a3a7abdc438605aeebb544b78924e56207b7c6444a66dd598e1f305bb",
+  "history/ntvspor/index.jsonl.gz": "f01f0d1f7039a784442c1823dff65b7162e2f346655ea5a8f415fac0f107792c",
+  "history/sabah_spor/index.jsonl.gz": "1d6b376293770ca6a237bb42623b19291f1aeda816a3f34eb20c2e90742e71a7",
+  "history/sporx/index.jsonl.gz": "2003c3a8976f23c77b3a85819581116666fb0180e5c1ca3928c96bd21b31e101",
+  "transfermarkt/players.csv.gz": "d22e407981d5b51a79bf8ff59835729f3526f7dc3495a6d8ed2f852ed2e86403",
+  "transfermarkt/clubs.csv.gz": "aa57ab56e87faffaea1e8697439a32caf10116d8f2f2dfb3a57193c0bb1d641b",
+  "transfermarkt/transfers.csv.gz": "90326983daf7e6ac7aabdfe62b90936d9bf1dd2171e53dec75c3751eb1620a83",
+  "transfermarkt/player_valuations.csv.gz": "608e32e5ad2231074f3505c469ad727be66d7e6efda6af918afd85379439631d",
+  "history/titles.jsonl.gz": "bd80085b6bee79bde62b1b6081b0e3d1c74962e16f61def1ecb4a560175f5350"
+ },
+ "title_coverage": 1.0,
+ "date_sources": {
+  "capture": 192921,
+  "url": 76802,
+  "published": 16409
+ },
+ "counts": {
+  "train": 15461,
+  "val": 2787,
+  "test": 3162
+ },
+ "test_pairs": 1109,
+ "n_boot": 2000,
+ "val_auc_raw": {
+  "site": 0.5208883542138554,
+  "metadata": 0.770130089837042,
+  "tfidf": 0.6626290794892002,
+  "bert": 0.66133039649943
+ },
+ "test": {
+  "base": {
+   "auc": 0.5,
+   "avg_precision": 0.23371283997469955,
+   "brier": 0.17971556215982026,
+   "log_loss": 0.545388015582135,
+   "mean_p": 0.2587011123071403,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "site": {
+   "auc": 0.5347317123841936,
+   "avg_precision": 0.2429185912457885,
+   "brier": 0.17949284309027622,
+   "log_loss": 0.5447460183560778,
+   "mean_p": 0.2576410628918436,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "metadata": {
+   "auc": 0.7675124553431062,
+   "avg_precision": 0.5043223412996857,
+   "brier": 0.15018015720040212,
+   "log_loss": 0.4669253323873688,
+   "mean_p": 0.24960109059484276,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "tfidf": {
+   "auc": 0.6536822635132304,
+   "avg_precision": 0.4001063624168455,
+   "brier": 0.1674465351054022,
+   "log_loss": 0.5136405994057305,
+   "mean_p": 0.2526909705457454,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "bert": {
+   "auc": 0.6725818260613639,
+   "avg_precision": 0.4240773289269862,
+   "brier": 0.164359632383871,
+   "log_loss": 0.5057964658056202,
+   "mean_p": 0.2524328819791566,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "fusion": {
+   "auc": 0.7829377576305556,
+   "avg_precision": 0.5519016828142057,
+   "brier": 0.14400100620656933,
+   "log_loss": 0.44986400724674236,
+   "mean_p": 0.2470142277364754,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  },
+  "fusion_tfidf": {
+   "auc": 0.7734554453067888,
+   "avg_precision": 0.5439401527186836,
+   "brier": 0.1455560023493105,
+   "log_loss": 0.4540190489527547,
+   "mean_p": 0.24671152698301718,
+   "rate": 0.23371283997469955,
+   "n": 3162
+  }
+ },
+ "primary": [
+  0.015425302287449427,
+  0.000859017101874604,
+  0.033868709040903604
+ ],
+ "secondary": {
+  "bert - tfidf": [
+   0.01889956254813341,
+   0.001349486006474418,
+   0.03603774337033004
+  ],
+  "bert - metadata": [
+   -0.09493062928174234,
+   -0.14342654427783272,
+   -0.03457119744614144
+  ],
+  "tfidf - metadata": [
+   -0.11383019182987575,
+   -0.16450773594332513,
+   -0.05182398200846427
+  ],
+  "fusion_tfidf - metadata": [
+   0.005942989963682588,
+   -0.008958924175418184,
+   0.023893798574820792
+  ],
+  "fusion - fusion_tfidf": [
+   0.00948231232376684,
+   0.0024923284320831295,
+   0.01654691395231609
+  ],
+  "metadata - site": [
+   0.2327807429589126,
+   0.16533175505519626,
+   0.2873006409344749
+  ],
+  "tfidf - site": [
+   0.11895055112903685,
+   0.08235646423598313,
+   0.15328684548463417
+  ]
+ },
+ "models": {
+  "metadata": {
+   "best_rounds": [
+    7,
+    15,
+    24,
+    6,
+    10
+   ],
+   "gain_last_seed": {
+    "month": 591.2,
+    "pair_30d": 3342.9,
+    "pair_sites_30d": 4921.7,
+    "pair_365d": 495.0,
+    "pair_age_days": 649.9,
+    "player_30d": 291.0,
+    "player_clubs_30d": 467.0,
+    "log_value": 3257.5,
+    "age": 3015.4,
+    "target_tr": 495.7,
+    "current_tr": 720.3,
+    "current_known": 4581.4,
+    "site": 189.2,
+    "position": 67.0
+   }
+  },
+  "tfidf": {
+   "C": 1.0,
+   "val_auc_by_C": {
+    "0.1": 0.6545,
+    "0.3": 0.6591,
+    "1.0": 0.6626,
+    "3.0": 0.6599,
+    "10.0": 0.6521
+   }
+  },
+  "bert": {
+   "runs": [
+    {
+     "seed": 0,
+     "val_auc_by_epoch": [
+      0.6297,
+      0.6557,
+      0.6548,
+      0.6582
+     ],
+     "best_epoch": 4,
+     "device": "cuda"
+    },
+    {
+     "seed": 1,
+     "val_auc_by_epoch": [
+      0.6333,
+      0.6417,
+      0.6448,
+      0.6386
+     ],
+     "best_epoch": 3,
+     "device": "cuda"
+    },
+    {
+     "seed": 2,
+     "val_auc_by_epoch": [
+      0.6478,
+      0.6419,
+      0.6587,
+      0.6498
+     ],
+     "best_epoch": 3,
+     "device": "cuda"
+    }
+   ],
+   "hparams": {
+    "max_len": 64,
+    "batch_size": 32,
+    "lr": 2e-05,
+    "weight_decay": 0.01,
+    "warmup": 0.1,
+    "epochs": 4
+   },
+   "model": "dbmdz/bert-base-turkish-uncased"
+  },
+  "fusion": {
+   "coef_metadata_text_intercept": [
+    2.2651,
+    0.3421,
+    3.4128
+   ]
+  },
+  "fusion_tfidf": {
+   "coef_metadata_text_intercept": [
+    2.2652,
+    0.4839,
+    3.7117
+   ]
+  }
+ }
+}
