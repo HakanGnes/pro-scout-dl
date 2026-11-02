@@ -69,6 +69,9 @@ python -m features.rumours claims        # link headlines to players/clubs, labe
 python -m etl history-titles --urls data\processed\rumours\title_urls.txt   # archived pages of rumour articles
 python -m features.rumours claims        # again, now with publication dates
 python -m models.rumours run             # the pre-registered study -> reports/rumours/
+python -m models.rumours fit             # the same model, saved for use -> models/artifacts/rumours/ (~650 MB)
+python -m models.rumours score-archive   # score Jan-Jun 2026 rumours -> data/processed/rumours/scored_2026.csv
+streamlit run app/rumours.py             # 2026 rumours, try a headline, the 2025 record
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -105,6 +108,9 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl history-titles [--urls FILE] [--workers 4] [--limit N]` | Fetch archived pages: title, description and publication time (resumable) |
 | `python -m features.rumours claims` | Link every archived headline to Transfermarkt players and clubs, label each (player, club) claim with whether the move happened within 180 days; writes `title_urls.txt` |
 | `python -m models.rumours run [--device cuda]` | The pre-registered Phase 4 study: paper rate, metadata GBM, TF-IDF, BERTurk, fusion; `reports/rumours/` |
+| `python -m models.rumours fit` | Train the metadata + BERTurk fusion exactly as in the study and save it to `models/artifacts/rumours/` |
+| `python -m models.rumours score-archive [--start 2026-01-01]` | Score the archived rumours from the start date to the end of the Transfermarkt data (12 June 2026), with what has happened by then; `data/processed/rumours/scored_2026.csv` |
+| `streamlit run app/rumours.py` | 2026 rumours with probability and outcome so far, a box to score any headline, and the 2025 test record |
 | `python -m etl history-status` | Progress of the two history steps |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
@@ -273,6 +279,8 @@ Rumour credibility needs news with a known outcome, and no labelled Turkish rumo
 collection starts well before the model. An hourly Windows scheduled task fetches Turkish
 sports-news RSS feeds and appends every new item to a gzip JSONL archive in `data/raw/news/`. The archive is the
 source of truth and keeps working when Docker is off; `news_items` in PostgreSQL is loaded from it.
+The rumour model does not use these feeds yet: their headlines come after the end of the Transfermarkt data,
+so they can be labelled and scored only once a newer snapshot with the same columns is available.
 
 ```powershell
 python -m etl probe-news                                              # which feeds work -> etl/news/feeds.json
@@ -319,7 +327,11 @@ than a bag of words? Pre-registered before any model saw real data:
 | Metadata + TF-IDF | 0.774 | 0.146 |
 | **Metadata + BERTurk** | **0.783** | **0.144** |
 
-- **Primary outcome met, narrowly:** metadata + BERTurk − metadata +0.015 AUC, 95% interval [+0.001, +0.034],
+- **Correction (2026-11-02): the result below does not stand.** The linking let a move *after* a headline
+  decide whether a last-name-only player was linked; without those claims the primary outcome is not met
+  (+0.010 [−0.006, +0.028]). A corrected run is registered:
+  [`docs/preregistration/2026-11-02-rumour-credibility-corrected.md`](docs/preregistration/2026-11-02-rumour-credibility-corrected.md).
+- **First run's primary outcome met, narrowly:** metadata + BERTurk − metadata +0.015 AUC, 95% interval [+0.001, +0.034],
   resampling player-club pairs. The wording adds a little; most of the signal is how much and how widely the
   pair is in the news, and who the player is.
 - **BERTurk beats bag-of-words**, slightly (+0.019 AUC alone); only the BERTurk fusion beats metadata alone.
@@ -328,6 +340,15 @@ than a bag of words? Pre-registered before any model saw real data:
   that do not.
 - **Limits:** about one claim in three is noise from linking or stance; labels depend on Transfermarkt
   recording the move; foreign target clubs are much harder (AUC 0.68).
+
+**In use.** `python -m models.rumours fit` trains the same fusion the same way (training period, fusion fitted
+on validation) and saves it, so the model in use is the one tested above. The Transfermarkt data ends on
+12 June 2026 and knows no move after it, so nothing later is scored: a claim needs the player's club and value
+on the day, and guessing them from news would put unchecked data into the model. `score-archive` scores the
+997 rumours of January to June 2026, which come after the test year and were never seen by any model, and
+`app/rumours.py` lists them with their probability and what Transfermarkt shows by June (most 180-day windows
+are still open then), scores any headline dated up to that day, and shows the 2025 record. People with no
+market value in the two years before a headline (coaches, retired players) are not treated as players.
 
 ## Tests
 
@@ -366,7 +387,7 @@ pro-scout-dl/
 ├── docs/            pre-registered experiments
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player profiles, swap simulation, sanity checks
-├── app/             Streamlit page (swap.py)
+├── app/             Streamlit pages: swap.py (Phase 2), rumours.py (Phase 4)
 └── notebooks/
 ```
 

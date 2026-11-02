@@ -6,6 +6,14 @@
 - **Status:** run once on 2026-10-31 at commit `4acbe6f`. Result: **supported**, narrowly:
   AUC(fusion) − AUC(metadata) +0.0154, 95% interval [+0.0009, +0.0339]. Full result:
   [`reports/rumours/README.md`](../../reports/rumours/README.md).
+- **Correction (2026-11-02): the result does not stand.** A flaw in the linking found after the run: a
+  last-name-only player was linked when he moved to or from a club named in the headline within a year
+  *before or after* it, so a later move could decide whether a headline entered the study (84% of claims linked
+  only that way came true, against 13% overall). In the test period these were 182 of 3,162 claims. With them
+  left out, using the saved predictions and the same bootstrap: AUC(fusion) − AUC(metadata) +0.0095, 95%
+  interval [−0.0062, +0.0279], not supported; BERTurk − TF-IDF +0.0206 [+0.0007, +0.0397]. The models were also
+  trained on such claims. A corrected run is registered in
+  [`2026-11-02-rumour-credibility-corrected.md`](2026-11-02-rumour-credibility-corrected.md).
 - **Disclosure — what was seen before registering:**
   - Per year and stance, the share of claims that came true, for every year 2011–2026, with an
     earlier 365-day horizon (2025 rumours: 23%). With the registered 180-day horizon, the shares for

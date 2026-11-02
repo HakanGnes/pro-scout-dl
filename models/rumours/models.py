@@ -39,8 +39,10 @@ def _meta_matrix(frame: pd.DataFrame, cats: dict[str, list]) -> pd.DataFrame:
 
 
 def metadata_gbm(train: pd.DataFrame, val: pd.DataFrame, frames: dict[str, pd.DataFrame],
-                 seeds: list[int]) -> tuple[dict[str, np.ndarray], dict]:
-    """LightGBM on the metadata inputs; early stopping on validation AUC; seed predictions averaged."""
+                 seeds: list[int], keep: list | None = None) -> tuple[dict[str, np.ndarray], dict]:
+    """LightGBM on the metadata inputs; early stopping on validation AUC; seed predictions averaged.
+
+    `keep`: if a list is given, the fitted boosters are appended to it (for saving)."""
     import lightgbm as lgb
 
     cats = {c: sorted(train[c].astype(str).unique()) for c in META_CATEGORICAL}
@@ -54,10 +56,18 @@ def metadata_gbm(train: pd.DataFrame, val: pd.DataFrame, frames: dict[str, pd.Da
             m.fit(xt, train["label"], eval_set=[(xv, val["label"])], eval_metric="auc",
                   callbacks=[lgb.early_stopping(200, first_metric_only=True, verbose=False)])
         rounds.append(int(m.best_iteration_ or m.n_estimators))
+        if keep is not None:
+            keep.append(m.booster_)
         for k, f in frames.items():
             out[k] += m.predict_proba(_meta_matrix(f, cats))[:, 1] / len(seeds)
     imp = dict(zip(xt.columns, m.booster_.feature_importance("gain").round(1).tolist()))
-    return out, {"best_rounds": rounds, "gain_last_seed": imp}
+    return out, {"best_rounds": rounds, "gain_last_seed": imp, "categories": cats}
+
+
+def metadata_predict(boosters: list, cats: dict[str, list], frame: pd.DataFrame) -> np.ndarray:
+    """Average of saved metadata boosters (best iteration each) on a frame of metadata inputs."""
+    x = _meta_matrix(frame, cats)
+    return np.mean([b.predict(x, num_iteration=b.best_iteration or None) for b in boosters], axis=0)
 
 
 def tfidf_lr(train: pd.DataFrame, val: pd.DataFrame, frames: dict[str, pd.DataFrame],

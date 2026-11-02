@@ -80,3 +80,52 @@ def test_article_dates_and_slugs():
     assert clean_slug("abdulkadir icin teklif sxhbq981424sxq") == "abdulkadir icin teklif"
     assert clean_slug("feghouli den aciklama 5cf403f6237d8a159cbc784e 2043608") == "feghouli den aciklama"
     assert clean_slug("u21 takimina 3 transfer") == "u21 takimina 3 transfer"
+
+
+def test_first_name_must_be_another_word():
+    players = pd.DataFrame({"player_id": [1, 2], "name": ["Said Ahmed Said", "Said El Mala"]})
+    clubs = pd.DataFrame({"club_id": [141], "name": ["Galatasaray"], "domestic_competition_id": ["TR1"]})
+    transfers = pd.DataFrame({"player_id": [1], "transfer_date": [D("2025-07-01")], "from_club_id": [5],
+                              "to_club_id": [7], "from_club_name": ["A"], "to_club_name": ["B"]})
+    g = Gazetteer.build(players, clubs, transfers)
+    found, _ = g.link("galatasarayin radarinda alman cevheri said el mala", D("2026-10-29"))
+    assert [p.id for p in found] == [2]          # "said" is El Mala's first name, not Said Ahmed Said's surname
+
+
+def test_last_name_links_use_only_the_past():
+    players = pd.DataFrame({"player_id": [1, 2, 3, 4], "name": ["Ali Kaplan", "Dusan Tadic", "Dusan Vlahovic",
+                                                                "Vanja Vlahovic"]})
+    clubs = pd.DataFrame({"club_id": [36, 141, 506], "name": ["Fenerbahce", "Galatasaray", "Juventus"],
+                          "domestic_competition_id": ["TR1", "TR1", "IT1"]})
+    transfers = pd.DataFrame({
+        "player_id": [1, 1, 2, 2, 3], "transfer_date": [D("2020-07-01"), D("2025-08-01"), D("2021-07-01"),
+                                                         D("2025-06-01"), D("2021-07-01")],
+        "from_club_id": [9, 9, 610, 36, 430], "to_club_id": [9, 36, 36, 1000, 506],
+        "from_club_name": ["X", "X", "Ajax", "Fenerbahce", "Fiorentina"],
+        "to_club_name": ["X", "Fenerbahce", "Fenerbahce", "Al-Wahda", "Juventus"]})
+    vals = pd.DataFrame({"player_id": [1, 2, 3, 3, 4], "date": [D("2025-01-01"), D("2025-01-01"), D("2024-06-01"),
+                                                                 D("2025-12-01"), D("2025-12-01")],
+                         "market_value_in_eur": [500_000, 3_000_000, 40_000_000, 30_000_000, 6_000_000]})
+    g = Gazetteer.build(players, clubs, transfers, vals)
+    # Kaplan moves to Fenerbahce in Aug 2025: a headline in March must not be linked through that later move
+    found, _ = g.link("fenerbahce kaplan icin teklif", D("2025-03-01"))
+    assert found == []
+    # Vlahovic: no tie to Fenerbahce, but Dusan (EUR 40m) is worth over 5x Vanja (EUR 6m), the other active one;
+    # Tadic left Fenerbahce in the year before and is background when another player is named
+    found, clubs_found = g.link("fenerbahceden vlahovic hamlesi transferde tadic detayi", D("2026-01-10"))
+    assert [(m.id, m.how) for m in found] == [(3, "last_unique")] and [c.id for c in clubs_found] == [36]
+    found, _ = g.link("fenerbahce tadic ile yeniden gorusuyor", D("2026-01-10"))
+    assert [(m.id, m.how) for m in found] == [(2, "last_left")]            # alone, the ex-player stays
+
+
+def test_unique_surname_skips_one_name_players_and_club_words():
+    players = pd.DataFrame({"player_id": [1, 2], "name": ["Marcelo", "Valere Germain"]})
+    clubs = pd.DataFrame({"club_id": [583, 114], "name": ["Paris Saint-Germain", "Besiktas"],
+                          "domestic_competition_id": ["FR1", "TR1"]})
+    transfers = pd.DataFrame({"player_id": [9], "transfer_date": [D("2020-01-01")], "from_club_id": [1],
+                              "to_club_id": [2], "from_club_name": ["A"], "to_club_name": ["B"]})
+    vals = pd.DataFrame({"player_id": [1, 2], "date": [D("2021-01-01")] * 2, "market_value_in_eur": [5e6, 5e6]})
+    g = Gazetteer.build(players, clubs, transfers, vals)
+    assert g.link("marcelo bielsadan besiktas aciklamasi", D("2021-06-01"))[0] == []
+    players_found, clubs_found = g.link("besiktas paris saint germainin yildizini istiyor", D("2021-06-01"))
+    assert players_found == [] and {c.id for c in clubs_found} == {114, 583}

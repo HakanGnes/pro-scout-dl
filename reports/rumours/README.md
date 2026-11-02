@@ -1,5 +1,12 @@
 # Transfer rumour credibility: results
 
+> **Superseded (2026-11-02).** The linking used moves dated after a headline to decide whether a last-name-only
+> player was linked (182 of the 3,162 test claims; 84% of them came true). Without those claims, from the saved
+> predictions and the same bootstrap: AUC(fusion) − AUC(metadata) +0.0095 [−0.0062, +0.0279], **not supported**;
+> BERTurk − TF-IDF +0.0206 [+0.0007, +0.0397]; metadata AUC 0.769, fusion 0.779. The results below are the first
+> run as registered. A corrected run is registered in
+> [`2026-11-02-rumour-credibility-corrected.md`](../../docs/preregistration/2026-11-02-rumour-credibility-corrected.md).
+
 Pre-registration: [`docs/preregistration/2026-10-29-rumour-credibility.md`](../../docs/preregistration/2026-10-29-rumour-credibility.md). Run at commit `4acbe6f` on 2026-10-31T14:45:39+00:00.
 
 Test period 2025: 3,162 rumour claims, 1,109 player-club pairs, 23.4% came true within 180 days.
@@ -94,3 +101,15 @@ as in the study). Toward *comes true*: "istanbula", "imzaya geliyor", "bitiriyor
 "harekatı", "hamlesi", "rakip", "eski", "ayrılık", "menajeri", "istiyordu", and a second club in the same
 headline. Concrete, late-stage language (travel, signing, talks under way) separates from early interest
 and competition. A few first names survived the masking ("josef", "larsen", "murat"); they are rare.
+
+## Changes to the code after the run
+
+- **2026-11-02, player linking:** a full-name match could use the same word as both first and last name
+  ("said" in "Said El Mala" matched the player Said Ahmed Said). The first name must now be another word of
+  the headline. The registered run used the old rule; rerunning `python -m models.rumours run` at a later
+  commit gives slightly different claims and is not the registered result.
+- **Use only** (`score-archive`, `app/rumours.py`; nothing above changes): headlines are scored only up to the end
+  of the Transfermarkt data (12 June 2026), and people with no market value in the two years before the headline
+  are skipped. Found when a first list of October 2026 RSS headlines showed a coach (Emre Belözoğlu) and a
+  departure from a club the player had joined after the data ends (Lukaku, Fenerbahçe) as rumours. Scoring news
+  after the data's end was dropped rather than patched with clubs guessed from headlines.

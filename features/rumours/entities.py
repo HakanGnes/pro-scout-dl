@@ -5,7 +5,12 @@ token matches a name when the name is the token minus at most SUFFIX_MAX trailin
 
 Players are matched with first and last name together ("mauro icardi") or, when the slug gives only
 the last name ("galatasaray icardi icin"), only if exactly one player with that last name is tied to a
-club named in the slug: playing for it at the time, or moving to or from it within a year.
+club named in the slug, from what was known on the headline's day: playing for it then, or having moved
+to or from it in the year before. Failing that, a last name is accepted for the most valuable player
+active then (a market value in the two years before) who carries it, if he was worth at least EUR 1m and
+at least five times any other active player with that name (Dušan, not Vanja, Vlahović).
+Only records dated before the headline are used, so whether the rumour later came true cannot decide
+whether it is linked.
 """
 from __future__ import annotations
 
@@ -61,7 +66,8 @@ class Mention:
     kind: str            # "player" | "club"
     id: int
     start: int           # token index in the slug
-    how: str             # "full", "last", "alias", "nickname"
+    how: str             # "full", "last", "last_left", "last_unique", "alias"
+    span: int = 1        # number of tokens the mention covers
 
 
 @dataclass
@@ -74,6 +80,8 @@ class Gazetteer:
     turkish_clubs: set[int]
     common: set[str] = field(default_factory=set)  # tokens too frequent to be a last name on their own
     max_alias_len: int = 4
+    # player id -> (valuation dates, running maximum of the value): what a player was worth up to a day
+    value_history: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------ building
 
@@ -118,16 +126,44 @@ class Gazetteer:
             if len(last) >= 3:
                 last_names[last].append(pid)
             first_names[pid] = set(toks[:-1])
-        value = {}
+        value, history = {}, {}
         if valuations is not None and len(valuations):
-            value = valuations.groupby("player_id")["market_value_in_eur"].max().astype(float).to_dict()
+            v = valuations.dropna(subset=["market_value_in_eur"]).sort_values(["player_id", "date"])
+            value = v.groupby("player_id")["market_value_in_eur"].max().astype(float).to_dict()
+            for pid, d in v.groupby("player_id"):
+                history[int(pid)] = (d["date"].to_numpy("datetime64[ns]"),
+                                     np.maximum.accumulate(d["market_value_in_eur"].to_numpy(float)))
         tr = transfers[["player_id", "transfer_date", "from_club_id", "to_club_id"]].rename(
             columns={"transfer_date": "date"}).sort_values(["player_id", "date"]).reset_index(drop=True)
         turkish = set(clubs.loc[clubs["domestic_competition_id"] == "TR1", "club_id"].astype(int))
         return cls(dict(alias), dict(last_names), first_names, value, tr, turkish, common,
-                   max(len(k) for k in alias))
+                   max(len(k) for k in alias), history)
 
     # ------------------------------------------------------------ queries
+
+    ACTIVE_DAYS = 730
+    # Rule 4 of docs/preregistration/2026-11-02-rumour-credibility-corrected.md: on only if >= 85% of 80
+    # hand-labelled headlines it links name the right player (set before the corrected run).
+    UNIQUE_SURNAME = True
+    MIN_UNIQUE_VALUE = 1_000_000
+    DOMINANCE = 5.0
+
+    def value_at(self, player_id: int, date: pd.Timestamp | None) -> float:
+        """Highest market value up to the day (0 if none); without a day, the highest ever."""
+        h = getattr(self, "value_history", {}).get(player_id)
+        if date is None or h is None:
+            return self.player_value.get(player_id, 0.0) if date is None else 0.0
+        i = np.searchsorted(h[0], np.datetime64(date), side="right") - 1
+        return float(h[1][i]) if i >= 0 else 0.0
+
+    def active_at(self, player_id: int, date: pd.Timestamp) -> bool:
+        """A market value dated in the ACTIVE_DAYS before the day."""
+        h = getattr(self, "value_history", {}).get(player_id)
+        if h is None:
+            return False
+        d = np.datetime64(date)
+        i = np.searchsorted(h[0], d, side="right") - 1
+        return i >= 0 and h[0][i] >= d - np.timedelta64(self.ACTIVE_DAYS, "D")
 
     def club_at(self, player_id: int, date: pd.Timestamp) -> int | None:
         tr = self._by_player().get(player_id)
@@ -162,7 +198,7 @@ class Gazetteer:
                 for last in stems(toks[i + n - 1]):
                     cid = self.club_alias.get(head + (last,))
                     if cid is not None and (n > 1 or len(last) >= 4):
-                        hit = Mention("club", cid, i, "alias")
+                        hit = Mention("club", cid, i, "alias", n)
                         break
                 if hit:
                     i += n
@@ -174,44 +210,65 @@ class Gazetteer:
         return found
 
     def players_in(self, toks: list[str], clubs: list[int], date: pd.Timestamp | None) -> list[Mention]:
-        found, tokset = [], set(toks)
+        found = []
         for i, t in enumerate(toks):
             for last in stems(t):
                 ids = self.last_names.get(last)
                 if not ids:
                     continue
                 prev = toks[i - 1] if i else ""
+                others = set(toks[:i] + toks[i + 1:])        # a first name must be another word of the headline
                 full = [p for p in ids if prev in self.first_names.get(p, ()) or
-                        any(f in tokset and len(f) >= 4 for f in self.first_names.get(p, ()))]
+                        any(f in others and len(f) >= 4 for f in self.first_names.get(p, ()))]
                 if full:
-                    pid = max(full, key=lambda p: self.player_value.get(p, 0.0))
+                    pid = max(full, key=lambda p: self.value_at(p, date))
                     found.append(Mention("player", pid, i, "full"))
                     break
-                if last in self.common or len(last) < 4:
+                if last in self.common or len(last) < 4 or date is None:
                     continue
-                tied = [p for p in ids if self._tied(p, clubs, date)]
+                ties = {p: self._tie(p, clubs, date) for p in ids}
+                tied = [p for p, k in ties.items() if k]
                 if len(tied) == 1:
-                    found.append(Mention("player", tied[0], i, "last"))
+                    found.append(Mention("player", tied[0], i, "last" if ties[tied[0]] != "left" else "last_left"))
                     break
+                if not tied and self.UNIQUE_SURNAME and len(last) >= 5:
+                    # players known by one name only ("Marcelo", "Rodrigo") are left out: the word is too often
+                    # someone else's first name
+                    vals = sorted(((self.value_at(p, date), p) for p in ids
+                                   if self.first_names.get(p) and self.active_at(p, date)), reverse=True)
+                    if vals and vals[0][0] >= self.MIN_UNIQUE_VALUE and (
+                            len(vals) == 1 or vals[0][0] >= self.DOMINANCE * vals[1][0]):
+                        found.append(Mention("player", vals[0][1], i, "last_unique"))
+                        break
         return found
 
-    def _tied(self, pid: int, clubs: list[int], date: pd.Timestamp | None) -> bool:
-        if date is None:
-            return False
-        cur = self.club_at(pid, date)
+    def _tie(self, pid: int, clubs: list[int], date: pd.Timestamp) -> str | None:
+        """How a player is tied to a club named in the headline, from records before the day: "current"
+        (plays there), "joined" (moved there in the year before) or "left" (moved away in the year before)."""
+        cur = self.club_at(pid, date - pd.Timedelta(days=1))
         if cur is not None and cur in clubs:
-            return True
-        win = pd.Timedelta(days=365)
-        return any(abs(d - date) <= win and (to in clubs or fr in clubs) for d, fr, to in self.moves(pid))
+            return "current"
+        year = date - pd.Timedelta(days=365)
+        past = [(fr, to) for d, fr, to in self.moves(pid) if year <= d < date]
+        if any(to in clubs for _, to in past):
+            return "joined"
+        if any(fr in clubs for fr, _ in past):
+            return "left"
+        return None
 
     def link(self, slug: str, date: pd.Timestamp | None) -> tuple[list[Mention], list[Mention]]:
         """Players named in full first; clubs in the remaining tokens; then last-name-only players."""
         toks = slug.split()
-        full = [m for m in self.players_in(toks, [], None) if m.how == "full"]
+        full = [m for m in self.players_in(toks, [], date) if m.how == "full"]
         taken = {m.start for m in full} | {m.start - 1 for m in full}     # last name and the first name before it
         masked = [t if i not in taken else "_" for i, t in enumerate(toks)]
         clubs = self.clubs_in(masked)
-        club_tokens = {m.start for m in clubs}
+        club_tokens = {m.start + k for m in clubs for k in range(m.span)}   # "germain" in "paris saint germain"
         rest = [m for m in self.players_in(masked, [c.id for c in clubs], date)
-                if m.how == "last" and m.start not in club_tokens]
-        return sorted(full + rest, key=lambda m: m.start), clubs
+                if m.how != "full" and m.start not in club_tokens]
+        players = full + rest
+        if len(players) > 1:
+            # a player tied only by having left a named club is background ("Tadić detayı") when the
+            # headline names someone else
+            players = [m for m in players if m.how != "last_left"]
+        return sorted(players, key=lambda m: m.start), clubs

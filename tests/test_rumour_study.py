@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -42,8 +43,8 @@ def _fixture(tmp_path, n_articles: int = 900, seed: int = 0):
     start, end = D("2018-01-01"), D("2025-12-01")
     days = (end - start).days
     for p in players.itertuples():
-        vals.append({"player_id": p.player_id, "date": "2017-06-01", "market_value_in_eur": 1_000_000,
-                     "current_club_id": 100})
+        vals += [{"player_id": p.player_id, "date": f"{y}-06-01", "market_value_in_eur": 1_000_000,
+                  "current_club_id": 100} for y in range(2017, 2026)]   # the data "ends" on 2025-06-01
         transfers.append({"player_id": p.player_id, "transfer_date": "2017-07-01", "from_club_id": 999,
                           "to_club_id": 100, "transfer_fee": 0, "market_value_in_eur": 1_000_000,
                           "from_club_name": "Other FC", "to_club_name": "Kartalspor"})
@@ -122,3 +123,113 @@ def test_inputs_must_match_registration(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         cli.check_inputs({"a": f}, strict=True)
     assert cli.check_inputs({"a": f}, strict=False)["a"] == cli.sha256(f)
+
+
+def test_headline_slug():
+    from models.rumours.live import headline_slug
+    assert headline_slug("Galatasaray'dan Icardi'ye teklif!") == "galatasaraydan icardiye teklif"
+    assert headline_slug("Fenerbahçe, Şenol Güneş'le görüştü – SON DAKİKA") == "fenerbahce senol gunesle gorustu son dakika"
+
+
+def test_fit_save_and_score_archive(tmp_path):
+    pytest.importorskip("torch")
+    from models.rumours import __main__ as cli
+    from models.rumours.live import Scorer
+
+    hist, tm = _fixture(tmp_path)
+    words = "hedefkulup oyuncu mevcutkulup baskakulup baskaoyuncu icin teklif kesinlesti iddia".split()
+    _tiny_bert(tmp_path / "bert", words + [str(i) for i in range(1000)])
+    art = tmp_path / "artifacts"
+    assert cli.main(["fit", "--history-dir", str(hist), "--transfermarkt-dir", str(tm), "--out", str(art),
+                     "--bert-model", str(tmp_path / "bert"), "--epochs", "1", "--seeds", "0", "--device", "cpu"]) == 0
+    fit = json.loads((art / "fit.json").read_text())
+    assert fit["val"] > 0 and (art / "bert_seed0" / "config.json").exists() and (art / "metadata_0.txt").exists()
+
+    out = tmp_path / "scored.csv"
+    assert cli.main(["score-archive", "--history-dir", str(hist), "--model", str(art), "--start", "2025-01-01",
+                     "--out", str(out), "--device", "cpu"]) == 0
+    scored = pd.read_csv(out, parse_dates=["date"])
+    assert len(scored) and scored["date"].between(D("2025-01-01"), D("2025-06-01")).all()   # nothing after the data
+    r = scored[scored["stance"] == "rumour"]
+    assert r["p"].between(0, 1).all() and r["outcome"].str.match(r"happened|open|did not").all()
+
+    s = Scorer.load(art, "cpu")       # the app's path: score one typed headline
+    one = s.score(pd.DataFrame({"url": ["typed"], "site": ["sporx"], "date": [D("2025-05-01")],
+                                "title": ["Galatasaray Ali Kaplan icin iddia teklif"]}))
+    assert (one["stance"] == "rumour").any() and one["p"].notna().any()
+    later = s.score(pd.DataFrame({"url": ["t"], "site": ["sporx"], "date": [D("2025-09-01")],
+                                  "title": ["Galatasaray Ali Kaplan icin iddia teklif"]}))
+    assert later.empty                 # after the end of the data: the player's club is unknown, so nothing is scored
+    none = s.score(pd.DataFrame({"url": ["t2"], "site": ["sporx"], "date": [D("2025-05-01")], "title": ["Derbide gol yagmuru"]}))
+    assert none.empty and "p" in none
+
+
+def test_outcome_labels():
+    from models.rumours.live import outcome, pairs, reported_moves
+    c = pd.DataFrame({"date": [D("2025-01-01"), D("2025-05-01"), D("2025-05-01"), D("2025-05-01")],
+                      "label": [0, 0, 1, 0], "move_date": [pd.NaT, pd.NaT, D("2025-07-01"), pd.NaT],
+                      "player_id": [1, 2, 3, 4], "club_id": [10, 10, 10, 36]})
+    o = outcome(c, D("2025-08-01"))
+    assert o["outcome"].tolist() == ["did not happen", "open: nothing reported by 01 Aug 2025",
+                                     "happened (Transfermarkt, 01 Jul 2025)", "open: nothing reported by 01 Aug 2025"]
+    assert o["happened"].tolist()[:1] == [0.0] and np.isnan(o["happened"].iloc[1]) and o["happened"].iloc[2] == 1.0
+    # after the data ends: a move reported done by 3 articles from 2 papers in completed-move words
+    late = pd.DataFrame({"url": ["a", "b", "c", "d"], "site": ["x", "y", "x", "x"],
+                         "date": [D("2025-09-01"), D("2025-09-02"), D("2025-09-03"), D("2025-09-04")],
+                         "slug": ["fenerbahce resmen acikladi", "fenerbahcenin yeni transferi", "imza toreni",
+                                  "anlasma saglandi"], "player_id": [4] * 4, "club_id": [36] * 4,
+                         "stance": ["announcement"] * 4})
+    rep = reported_moves(late, D("2025-08-01"))
+    assert rep[["player_id", "club_id"]].values.tolist() == [[4, 36]] and rep["date"].iloc[0] == D("2025-09-03")
+    o = outcome(c, D("2025-08-01"), rep, archive_end=D("2026-01-01"))
+    assert o["outcome"].iloc[3] == "happened (reported done in news, 03 Sep 2025)" and o["happened"].iloc[1] == 0.0
+    assert reported_moves(late.assign(site="x"), D("2025-08-01")).empty          # one paper is not enough
+    sc = c.assign(stance="rumour", url=["u1", "u2", "u3", "u4"], site="s", player=["A", "B", "C", "D"],
+                  club="K", current_club="Z", p=[0.1, 0.2, 0.3, 0.4], happened=o["happened"], outcome=o["outcome"])
+    pt = pairs(pd.concat([sc, sc.iloc[[3]].assign(url="u5", date=D("2025-05-02"), p=0.6)]))
+    d = pt.set_index("player").loc["D"]
+    assert d["articles"] == 2 and d["latest_p"] == 0.6 and d["highest_p"] == 0.6 and d["happened"] == 1.0
+
+
+def test_rumour_page(tmp_path, monkeypatch):
+    pytest.importorskip("streamlit")
+    pytest.importorskip("torch")
+    import streamlit as st
+    from streamlit.testing.v1 import AppTest
+
+    from models.rumours import __main__ as cli
+
+    hist, tm = _fixture(tmp_path)
+    words = "hedefkulup oyuncu mevcutkulup baskakulup baskaoyuncu icin teklif kesinlesti iddia".split()
+    _tiny_bert(tmp_path / "bert", words + [str(i) for i in range(1000)])
+    art, rep = tmp_path / "artifacts", tmp_path / "report"
+    common = ["--history-dir", str(hist), "--transfermarkt-dir", str(tm), "--bert-model", str(tmp_path / "bert"),
+              "--epochs", "1", "--seeds", "0", "--device", "cpu"]
+    assert cli.main(["fit", "--out", str(art), *common]) == 0
+    assert cli.main(["run", "--report-dir", str(rep), "--predictions", str(tmp_path / "pred.csv.gz"), "--n-boot", "20",
+                     "--allow-other-inputs", *common]) == 0
+    monkeypatch.setenv("PROSCOUT_RUMOUR_MODEL", str(art))
+    monkeypatch.setenv("PROSCOUT_RUMOUR_SCORED", str(tmp_path / "missing.csv"))
+    monkeypatch.setenv("PROSCOUT_RUMOUR_DATA_END", "2025-06-01")
+    monkeypatch.setenv("PROSCOUT_RUMOUR_PREDICTIONS", str(tmp_path / "pred.csv.gz"))
+    monkeypatch.setenv("PROSCOUT_DEVICE", "cpu")
+    st.cache_resource.clear()
+    at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app" / "rumours.py"), default_timeout=120).run()
+    assert not at.exception
+    assert any("Not scored yet" in i.value for i in at.info)                  # 2026 tab without a scored file
+    at.text_input(key="headline").set_value("Galatasaray'dan Ali Kaplan için iddia: teklif")
+    at.button[0].click().run()
+    assert not at.exception
+    assert any(m.label == "Probability" for m in at.metric)
+
+    assert cli.main(["score-archive", "--history-dir", str(hist), "--model", str(art), "--start", "2025-01-01",
+                     "--out", str(tmp_path / "scored.csv"), "--device", "cpu"]) == 0
+    monkeypatch.setenv("PROSCOUT_RUMOUR_SCORED", str(tmp_path / "scored.csv"))
+    at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app" / "rumours.py"), default_timeout=120).run()
+    assert not at.exception
+    table = next(d.value for d in at.dataframe if "latest" in d.value.columns)   # the pair table
+    assert len(table) and table["latest"].str.endswith("%").all() and "outcome" in table and "articles" in table
+    at.toggle[0].set_value(False).run()                                         # one row per headline
+    assert not at.exception
+    assert any("probability" in d.value for d in at.dataframe)
+    st.cache_resource.clear()

@@ -34,8 +34,10 @@ def predict(model, tok, texts: list[str], device, max_len: int, batch: int = 128
 
 def fine_tune(train_texts: list[str], train_y: np.ndarray, val_texts: list[str], val_y: np.ndarray,
               predict_on: dict[str, list[str]], seed: int, model_name: str = MODEL_NAME, device: str = "auto",
-              hparams: dict | None = None, log=print) -> tuple[dict[str, np.ndarray], dict]:
-    """One seed: train for the set number of epochs, keep the epoch with the best validation AUC."""
+              hparams: dict | None = None, log=print, save_to=None) -> tuple[dict[str, np.ndarray], dict]:
+    """One seed: train for the set number of epochs, keep the epoch with the best validation AUC.
+
+    `save_to`: a directory; the best epoch's model and tokenizer are saved there (half precision)."""
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
 
@@ -80,4 +82,18 @@ def fine_tune(train_texts: list[str], train_y: np.ndarray, val_texts: list[str],
             best_auc = auc
             best = {k: predict(model, tok, t, dev, hp["max_len"]) for k, t in predict_on.items()}
             best_epoch = epoch + 1
+            if save_to is not None:
+                # a half-precision copy; the weights being trained are not touched
+                half = {k: v.detach().to("cpu", copy=True).half() if v.is_floating_point() else v.detach().cpu()
+                        for k, v in model.state_dict().items()}
+                model.save_pretrained(save_to, state_dict=half)
+                tok.save_pretrained(save_to)
     return best, {"seed": seed, "val_auc_by_epoch": history, "best_epoch": best_epoch, "device": dev.type}
+
+
+def load(path, device: str = "auto"):
+    """A model saved by fine_tune(save_to=...), ready for predict()."""
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    dev = _device(device)
+    model = AutoModelForSequenceClassification.from_pretrained(path).float().to(dev)
+    return model, AutoTokenizer.from_pretrained(path), dev

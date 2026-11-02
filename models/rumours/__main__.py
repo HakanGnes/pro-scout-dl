@@ -1,9 +1,12 @@
-"""Command line: python -m models.rumours run
+"""Command line: python -m models.rumours run | fit | score-archive
 
-The pre-registered Phase 4 study (docs/preregistration/2026-10-29-rumour-credibility.md), in one run:
+run: the pre-registered Phase 4 study (docs/preregistration/2026-10-29-rumour-credibility.md), in one run:
 rebuilds the claims from the archive index and Transfermarkt, trains the paper rate, metadata GBM,
 TF-IDF and BERTurk models, fuses metadata with each text model, and writes the registered outcomes on
 the 2025 test period to reports/rumours/.
+fit: the same metadata + BERTurk fusion, trained the same way, saved to models/artifacts/rumours/ for use.
+score-archive: score the archived rumours from 2026 up to the end of the Transfermarkt data (June 2026), which
+no model has seen -> data/processed/rumours/scored_2026.csv.
 """
 from __future__ import annotations
 
@@ -18,6 +21,8 @@ from etl.config import DEFAULT_NEWS_DIR, DEFAULT_TRANSFERMARKT_DIR, REPO_ROOT
 
 REPORT_DIR = REPO_ROOT / "reports" / "rumours"
 PREDICTIONS = REPO_ROOT / "data" / "processed" / "rumours" / "predictions.csv.gz"
+ARTIFACTS = REPO_ROOT / "models" / "artifacts" / "rumours"
+SCORED = REPO_ROOT / "data" / "processed" / "rumours" / "scored_2026.csv"
 PREREG = "docs/preregistration/2026-10-29-rumour-credibility.md"
 SEEDS = [0, 1, 2]            # BERTurk
 META_SEEDS = [0, 1, 2, 3, 4]  # LightGBM
@@ -82,7 +87,25 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--seeds", type=int, nargs="+", help="tests only; the registered run uses 0-2")
     r.add_argument("--n-boot", type=int, default=N_BOOT, help="tests only")
     r.add_argument("--allow-other-inputs", action="store_true", help="tests only")
+    f = sub.add_parser("fit", help="train the metadata + BERTurk fusion as registered and save it")
+    f.add_argument("--history-dir", type=Path, default=DEFAULT_NEWS_DIR / "history")
+    f.add_argument("--transfermarkt-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
+    f.add_argument("--out", type=Path, default=ARTIFACTS)
+    f.add_argument("--device", default="auto")
+    f.add_argument("--bert-model", help="tests only")
+    f.add_argument("--epochs", type=int, help="tests only")
+    f.add_argument("--seeds", type=int, nargs="+", help="tests only; the saved model uses 0-2")
+    sa = sub.add_parser("score-archive", help="score the 2026 archived rumours (up to the data's end) with the saved model")
+    sa.add_argument("--history-dir", type=Path, default=DEFAULT_NEWS_DIR / "history")
+    sa.add_argument("--model", type=Path, default=ARTIFACTS)
+    sa.add_argument("--start", default="2026-01-01", help="first day (the 2025 test period ends on 2025-12-31)")
+    sa.add_argument("--out", type=Path, default=SCORED)
+    sa.add_argument("--device", default="auto")
     args = parser.parse_args(argv)
+    if args.command == "fit":
+        return _fit(args)
+    if args.command == "score-archive":
+        return _score_archive(args)
 
     import numpy as np
 
@@ -178,6 +201,119 @@ def main(argv: list[str] | None = None) -> int:
     for m, r in test.items():
         print(f"  {m:<13} AUC {r['auc']:.4f}  Brier {r['brier']:.4f}")
     print(f"Wrote {path} ({time.perf_counter() - started:.0f}s)")
+    return 0
+
+
+def _study(history_dir: Path, tm_dir: Path):
+    from etl.transfermarkt.tables import read_raw
+    from features.rumours.build import articles, gazetteer
+    from features.rumours.labels import claims as make_claims
+
+    from . import dataset
+    arts = articles(history_dir)
+    g = gazetteer(tm_dir, arts["slug"].tolist())
+    claims = make_claims(arts, g)
+    players, vals = read_raw(tm_dir, "players"), read_raw(tm_dir, "player_valuations")
+    return dataset.build(claims, g, players, vals), claims, g, players, vals, club_names(tm_dir)
+
+
+def club_names(tm_dir: Path) -> dict[int, str]:
+    """Club id -> name: the clubs table, else the latest name a transfer gives it."""
+    import pandas as pd
+
+    from etl.transfermarkt.tables import read_raw
+    t = pd.read_csv(Path(tm_dir) / "transfers.csv.gz", low_memory=False).sort_values("transfer_date")
+    names = {}
+    for col in ("from", "to"):
+        part = t[[f"{col}_club_id", f"{col}_club_name"]].dropna()
+        names.update(dict(zip(part[f"{col}_club_id"].astype(int), part[f"{col}_club_name"])))
+    clubs = read_raw(tm_dir, "clubs").dropna(subset=["name"])
+    names.update(dict(zip(clubs["club_id"].astype(int), clubs["name"])))
+    return names
+
+
+def _fit(args) -> int:
+    from . import live
+    started = time.perf_counter()
+    data, claims, g, players, vals, names = _study(args.history_dir, args.transfermarkt_dir)
+    print(f"Study table: {len(data):,} rumour claims ({time.perf_counter() - started:.0f}s); training as registered")
+    hp = {"epochs": args.epochs} if args.epochs else None
+    summary = live.fit(data, claims, g, players, vals, args.out, seeds=args.seeds or SEEDS,
+                       meta_seeds=args.seeds or META_SEEDS, club_names=names, device=args.device,
+                       model_name=args.bert_model or live.bert.MODEL_NAME, hparams=hp)
+    v = summary["val_auc"]
+    print(f"Validation AUC: metadata {v['metadata']:.4f}, BERTurk {v['bert']:.4f}, fusion {v['fusion']:.4f}")
+    print(f"Saved to {args.out} ({time.perf_counter() - started:.0f}s)")
+    return 0
+
+
+def _score_archive(args) -> int:
+    import json
+
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import roc_auc_score
+
+    from etl.news.history import iter_jsonl, url_key
+    from features.rumours.build import articles
+    from features.rumours.labels import claims as make_claims
+
+    from . import live
+    scorer = live.Scorer.load(args.model, args.device)
+    snap = scorer.snapshot
+    arts = articles(args.history_dir)
+    archive_end = arts["date"].max()
+    window = arts[(arts["date"] >= pd.Timestamp(args.start)) & (arts["date"] <= snap)].reset_index(drop=True)
+    titles = {url_key(t["url"]): t.get("title") for t in iter_jsonl([args.history_dir / "titles.jsonl.gz"])}
+    print(f"{len(window):,} archived transfer articles from {args.start} to {snap:%Y-%m-%d} (end of the Transfermarkt data)")
+    scored = scorer.score(window[["url", "site", "date", "slug"]])
+    if scored.empty:
+        print("No headline names a known player and club.")
+        return 0
+    # outcomes after the data's end: moves the later archive reports as done (checking only, not an input)
+    reported = live.reported_moves(make_claims(arts[arts["date"] > snap], scorer.g), snap)
+    res = live.outcome(scored, snap, reported, archive_end)
+    scored = scored.assign(title=scored["url"].map(lambda u: titles.get(url_key(u))).fillna(scored["slug"]),
+                           player=scored["player_id"].map(scorer.player_name),
+                           club=scored["club_id"].map(scorer.club_name),
+                           current_club=scored["current_club_id"].map(scorer.club_name),
+                           happened=res["happened"], outcome=res["outcome"])
+    cols = ["date", "site", "title", "player", "club", "current_club", "stance", "p", "p_metadata", "p_bert",
+            "happened", "outcome", "url", "player_id", "club_id"]
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    scored[cols].sort_values(["date", "p"], ascending=[False, False]).to_csv(args.out, index=False)
+    pair_table = live.pairs(scored)
+    pair_table.to_csv(args.out.with_name(args.out.stem + "_pairs.csv"), index=False)
+
+    r = scored[scored["stance"] == "rumour"]
+    k = r[r["happened"].notna()]
+    check = {"start": args.start, "data_end": f"{snap:%Y-%m-%d}", "archive_end": f"{archive_end:%Y-%m-%d}",
+             "claims": int(len(r)), "known": int(len(k)), "happened": int(k["happened"].sum()),
+             "reported_moves": int(len(reported))}
+    if k["happened"].nunique() == 2:
+        y, codes = k["happened"].to_numpy(), pd.factorize(k["player_id"].astype(str) + "-" + k["club_id"].astype(str))[0]
+        members = [np.flatnonzero(codes == i) for i in range(codes.max() + 1)]
+        rng, boot = np.random.default_rng(0), []
+        for _ in range(1000):
+            idx = np.concatenate([members[i] for i in rng.integers(0, len(members), len(members))])
+            if len(set(y[idx])) == 2:
+                boot.append(roc_auc_score(y[idx], k["p"].to_numpy()[idx]))
+        check.update({m: round(float(roc_auc_score(y, k[c])), 4) for m, c in
+                      (("auc_fusion", "p"), ("auc_metadata", "p_metadata"), ("auc_bert", "p_bert"))})
+        check["auc_fusion_95"] = [round(float(v), 4) for v in np.percentile(boot, [2.5, 97.5])]
+        check["reliability"] = live.reliability(k["happened"], k["p"]).round(4).reset_index().to_dict("records")
+    (args.out.with_name(args.out.stem + "_check.json")).write_text(json.dumps(check, indent=1), encoding="utf-8")
+
+    print(f"{len(r):,} rumour claims ({len(pair_table):,} player-club pairs) scored -> {args.out}")
+    print(f"Outcome known for {len(k):,}: {int(k['happened'].sum()):,} happened "
+          f"(Transfermarkt to {snap:%d %b %Y}, then moves reported done in the archive to {archive_end:%d %b %Y})")
+    if "auc_fusion" in check:
+        lo, hi = check["auc_fusion_95"]
+        print(f"AUC {check['auc_fusion']:.3f} [{lo:.3f}, {hi:.3f}] (metadata {check['auc_metadata']:.3f}, "
+              f"BERTurk {check['auc_bert']:.3f})")
+        for row in check["reliability"]:
+            print(f"  predicted {row['band']:<14} {row['claims']:5,} claims, mean {row['predicted']:.0%}, "
+                  f"happened {row['happened']:.0%}")
     return 0
 
 
