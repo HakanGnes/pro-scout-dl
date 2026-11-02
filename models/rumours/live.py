@@ -1,9 +1,11 @@
 """The rumour model for use: fit it once as registered and save it, then score headlines.
 
-`fit` repeats the registered recipe exactly (models trained on the training period, fusion fitted on the
-validation period), so the model in the app is the model whose test results are in reports/rumours/.
-`Scorer` links a headline to players and clubs, keeps the claims the rules call rumours, builds the
-same masked text and metadata, and returns the fusion probability that the move happens within 180 days.
+`fit` repeats the registered recipe exactly (models trained on the training period, recalibration fitted on
+the validation period), so the model in the app is the model whose test results are in reports/rumours/.
+The corrected run found that the headline's wording adds nothing measurable (reports/rumours/README.md), so as
+registered the model in use is the metadata model alone, recalibrated on validation; `text=True` fits the
+metadata + BERTurk fusion instead. `Scorer` links a headline to players and clubs, keeps the claims the rules
+call rumours, builds the same inputs, and returns the probability that the move happens within 180 days.
 
 Only headlines dated up to the end of the Transfermarkt data (its last valuation, June 2026) are scored: after
 it, a player's club and value are unknown, so a claim could not be built correctly.
@@ -61,8 +63,8 @@ def featurize(c: pd.DataFrame, history: pd.DataFrame, g: Gazetteer, names: Names
 
 def fit(data: pd.DataFrame, all_claims: pd.DataFrame, g: Gazetteer, players: pd.DataFrame,
         valuations: pd.DataFrame, out: Path, seeds: list[int], meta_seeds: list[int], club_names: dict | None = None,
-        device: str = "auto",
-        model_name: str = bert.MODEL_NAME, hparams: dict | None = None, log=print) -> dict:
+        device: str = "auto", model_name: str = bert.MODEL_NAME, hparams: dict | None = None, log=print,
+        text: bool = False) -> dict:
     """Train as registered on data (the study table) and save everything the Scorer needs to `out`."""
     out.mkdir(parents=True, exist_ok=True)
     tr, va = (data[data["split"] == s].reset_index(drop=True) for s in ("train", "val"))
@@ -72,27 +74,30 @@ def fit(data: pd.DataFrame, all_claims: pd.DataFrame, g: Gazetteer, players: pd.
         b.save_model(str(out / f"metadata_{i}.txt"))
     pb = np.zeros(len(va))
     runs = []
-    for s in seeds:
+    for s in (seeds if text else []):
         p, run = bert.fine_tune(tr["text"].tolist(), tr["label"].to_numpy(float), va["text"].tolist(),
                                 va["label"].to_numpy(), {"val": va["text"].tolist()}, seed=s, model_name=model_name,
                                 device=device, hparams=hparams, log=log, save_to=out / f"bert_seed{s}")
         pb += p["val"] / len(seeds)
         runs.append(run)
-    fusion = Calibrator().fit([pm["val"], pb], va["label"].to_numpy())
+    scores = [pm["val"], pb] if text else [pm["val"]]
+    fusion = Calibrator().fit(scores, va["label"].to_numpy())
     keep_players = players[["player_id", "name", "date_of_birth", "position"]].copy()
     keep_vals = valuations[["player_id", "date", "market_value_in_eur"]].copy()
     bundle = {"gazetteer": g, "history": all_claims[HISTORY_COLS].copy(), "players": keep_players,
               "valuations": keep_vals, "categories": info["categories"], "fusion": fusion,
-              "n_metadata": len(boosters), "bert_dirs": [f"bert_seed{s}" for s in seeds],
+              "n_metadata": len(boosters), "bert_dirs": [f"bert_seed{s}" for s in seeds] if text else [],
+              "mode": "fusion" if text else "metadata",
               "club_names": club_names or {}}
     with open(out / BUNDLE, "wb") as f:
         pickle.dump(bundle, f)
     from sklearn.metrics import roc_auc_score
     summary = {"fitted": time.strftime("%Y-%m-%d %H:%M"), "train": len(tr), "val": len(va),
+               "mode": "fusion" if text else "metadata",
                "val_auc": {"metadata": roc_auc_score(va["label"], pm["val"]),
-                           "bert": roc_auc_score(va["label"], pb),
-                           "fusion": roc_auc_score(va["label"], fusion([pm["val"], pb]))},
-               "fusion_coef_metadata_bert_intercept": fusion.coef(), "bert_runs": runs,
+                           **({"bert": roc_auc_score(va["label"], pb),
+                               "fusion": roc_auc_score(va["label"], fusion(scores))} if text else {})},
+               "calibration_coef": fusion.coef(), "bert_runs": runs,
                "metadata_rounds": info["best_rounds"]}
     (out / "fit.json").write_text(json.dumps(summary, indent=1, default=str), encoding="utf-8")
     return summary
@@ -167,11 +172,14 @@ class Scorer:
             history = pd.concat([self.history, c[HISTORY_COLS]], ignore_index=True)
             f = featurize(rumours, history, self.g, self.names, self.players, self.valuations)
             pm = metadata_predict(self.boosters, self.categories, f)
-            pb = np.mean([bert.predict(m, t, f["text"].tolist(), d, bert.HPARAMS["max_len"]) for m, t, d in self.berts],
-                         axis=0)
-            c.loc[rumours.index, "p"] = self.fusion([pm, pb])
+            if self.berts:
+                pb = np.mean([bert.predict(m, t, f["text"].tolist(), d, bert.HPARAMS["max_len"])
+                              for m, t, d in self.berts], axis=0)
+                c.loc[rumours.index, "p"] = self.fusion([pm, pb])
+                c.loc[rumours.index, "p_bert"] = pb
+            else:
+                c.loc[rumours.index, "p"] = self.fusion([pm])
             c.loc[rumours.index, "p_metadata"] = pm
-            c.loc[rumours.index, "p_bert"] = pb
             c.loc[rumours.index, "text"] = f["text"].to_numpy()
         return c
 

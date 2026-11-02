@@ -143,7 +143,16 @@ def test_fit_save_and_score_archive(tmp_path):
     assert cli.main(["fit", "--history-dir", str(hist), "--transfermarkt-dir", str(tm), "--out", str(art),
                      "--bert-model", str(tmp_path / "bert"), "--epochs", "1", "--seeds", "0", "--device", "cpu"]) == 0
     fit = json.loads((art / "fit.json").read_text())
-    assert fit["val"] > 0 and (art / "bert_seed0" / "config.json").exists() and (art / "metadata_0.txt").exists()
+    assert fit["val"] > 0 and fit["mode"] == "metadata" and (art / "metadata_0.txt").exists()
+    assert not (art / "bert_seed0").exists()        # as registered after the corrected run: metadata alone
+    art_text = tmp_path / "artifacts_text"
+    assert cli.main(["fit", "--history-dir", str(hist), "--transfermarkt-dir", str(tm), "--out", str(art_text),
+                     "--bert-model", str(tmp_path / "bert"), "--epochs", "1", "--seeds", "0", "--device", "cpu",
+                     "--text"]) == 0
+    assert (art_text / "bert_seed0" / "config.json").exists()
+    t = Scorer.load(art_text, "cpu").score(pd.DataFrame({"url": ["typed"], "site": ["sporx"], "date": [D("2025-05-01")],
+                                                         "title": ["Galatasaray Ali Kaplan icin iddia teklif"]}))
+    assert t["p_bert"].notna().any()
 
     out = tmp_path / "scored.csv"
     assert cli.main(["score-archive", "--history-dir", str(hist), "--model", str(art), "--start", "2025-01-01",
@@ -156,7 +165,7 @@ def test_fit_save_and_score_archive(tmp_path):
     s = Scorer.load(art, "cpu")       # the app's path: score one typed headline
     one = s.score(pd.DataFrame({"url": ["typed"], "site": ["sporx"], "date": [D("2025-05-01")],
                                 "title": ["Galatasaray Ali Kaplan icin iddia teklif"]}))
-    assert (one["stance"] == "rumour").any() and one["p"].notna().any()
+    assert (one["stance"] == "rumour").any() and one["p"].notna().any() and one["p_bert"].isna().all()
     later = s.score(pd.DataFrame({"url": ["t"], "site": ["sporx"], "date": [D("2025-09-01")],
                                   "title": ["Galatasaray Ali Kaplan icin iddia teklif"]}))
     assert later.empty                 # after the end of the data: the player's club is unknown, so nothing is scored

@@ -2,7 +2,10 @@
 
 - **Registered:** 2026-11-02, before the corrected run. Committed with the code that runs it; that commit
   is the timestamp.
-- **Status:** registered, not yet run. **Rule 4 switched off** (2026-11-02, before the run): 52 of the 80
+- **Status:** run once on 2026-11-02 at commit `0993c43`. Result: **not supported**: AUC(fusion) −
+  AUC(metadata) +0.0122, 95% interval [−0.0046, +0.0343]; BERTurk − TF-IDF +0.0243 [+0.0054, +0.0433]. As
+  registered, the score in use is the metadata model alone. Full result:
+  [`reports/rumours/README.md`](../../reports/rumours/README.md). **Rule 4 switched off** (2026-11-02, before the run): 52 of the 80
   hand-labelled headlines it links name the right player (65%, 95% interval 54%–74%), below the 85% required.
   Correction to rule 4's text: the 80 headlines were fixed before labelling by the rule that linked them (field
   `rule` of the labelling items), but they are spread over items h401–h500, not h401–h480 as written. Counted by

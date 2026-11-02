@@ -4,7 +4,8 @@ run: the pre-registered Phase 4 study (docs/preregistration/2026-10-29-rumour-cr
 rebuilds the claims from the archive index and Transfermarkt, trains the paper rate, metadata GBM,
 TF-IDF and BERTurk models, fuses metadata with each text model, and writes the registered outcomes on
 the 2025 test period to reports/rumours/.
-fit: the same metadata + BERTurk fusion, trained the same way, saved to models/artifacts/rumours/ for use.
+fit: the model in use, trained the same way, saved to models/artifacts/rumours/: the metadata model alone (the
+corrected run found no measurable gain from the wording); --text fits the metadata + BERTurk fusion instead.
 score-archive: score the archived rumours from 2026 up to the end of the Transfermarkt data (June 2026), which
 no model has seen -> data/processed/rumours/scored_2026.csv.
 """
@@ -87,11 +88,12 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--seeds", type=int, nargs="+", help="tests only; the registered run uses 0-2")
     r.add_argument("--n-boot", type=int, default=N_BOOT, help="tests only")
     r.add_argument("--allow-other-inputs", action="store_true", help="tests only")
-    f = sub.add_parser("fit", help="train the metadata + BERTurk fusion as registered and save it")
+    f = sub.add_parser("fit", help="train the model in use as registered (metadata alone) and save it")
     f.add_argument("--history-dir", type=Path, default=DEFAULT_NEWS_DIR / "history")
     f.add_argument("--transfermarkt-dir", type=Path, default=DEFAULT_TRANSFERMARKT_DIR)
     f.add_argument("--out", type=Path, default=ARTIFACTS)
     f.add_argument("--device", default="auto")
+    f.add_argument("--text", action="store_true", help="fit the metadata + BERTurk fusion instead (needs a GPU)")
     f.add_argument("--bert-model", help="tests only")
     f.add_argument("--epochs", type=int, help="tests only")
     f.add_argument("--seeds", type=int, nargs="+", help="tests only; the saved model uses 0-2")
@@ -240,9 +242,9 @@ def _fit(args) -> int:
     hp = {"epochs": args.epochs} if args.epochs else None
     summary = live.fit(data, claims, g, players, vals, args.out, seeds=args.seeds or SEEDS,
                        meta_seeds=args.seeds or META_SEEDS, club_names=names, device=args.device,
-                       model_name=args.bert_model or live.bert.MODEL_NAME, hparams=hp)
+                       model_name=args.bert_model or live.bert.MODEL_NAME, hparams=hp, text=args.text)
     v = summary["val_auc"]
-    print(f"Validation AUC: metadata {v['metadata']:.4f}, BERTurk {v['bert']:.4f}, fusion {v['fusion']:.4f}")
+    print(f"Model in use: {summary['mode']}. Validation AUC: " + ", ".join(f"{k} {x:.4f}" for k, x in v.items()))
     print(f"Saved to {args.out} ({time.perf_counter() - started:.0f}s)")
     return 0
 
@@ -299,18 +301,18 @@ def _score_archive(args) -> int:
             if len(set(y[idx])) == 2:
                 boot.append(roc_auc_score(y[idx], k["p"].to_numpy()[idx]))
         check.update({m: round(float(roc_auc_score(y, k[c])), 4) for m, c in
-                      (("auc_fusion", "p"), ("auc_metadata", "p_metadata"), ("auc_bert", "p_bert"))})
-        check["auc_fusion_95"] = [round(float(v), 4) for v in np.percentile(boot, [2.5, 97.5])]
+                      (("auc_model", "p"), ("auc_metadata", "p_metadata"), ("auc_bert", "p_bert"))
+                      if k[c].notna().all()})
+        check["auc_model_95"] = [round(float(v), 4) for v in np.percentile(boot, [2.5, 97.5])]
         check["reliability"] = live.reliability(k["happened"], k["p"]).round(4).reset_index().to_dict("records")
     (args.out.with_name(args.out.stem + "_check.json")).write_text(json.dumps(check, indent=1), encoding="utf-8")
 
     print(f"{len(r):,} rumour claims ({len(pair_table):,} player-club pairs) scored -> {args.out}")
     print(f"Outcome known for {len(k):,}: {int(k['happened'].sum()):,} happened "
           f"(Transfermarkt to {snap:%d %b %Y}, then moves reported done in the archive to {archive_end:%d %b %Y})")
-    if "auc_fusion" in check:
-        lo, hi = check["auc_fusion_95"]
-        print(f"AUC {check['auc_fusion']:.3f} [{lo:.3f}, {hi:.3f}] (metadata {check['auc_metadata']:.3f}, "
-              f"BERTurk {check['auc_bert']:.3f})")
+    if "auc_model" in check:
+        lo, hi = check["auc_model_95"]
+        print(f"AUC of the model in use {check['auc_model']:.3f} [{lo:.3f}, {hi:.3f}]")
         for row in check["reliability"]:
             print(f"  predicted {row['band']:<14} {row['claims']:5,} claims, mean {row['predicted']:.0%}, "
                   f"happened {row['happened']:.0%}")

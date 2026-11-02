@@ -31,7 +31,7 @@ SCORED_FILE = Path(os.environ.get("PROSCOUT_RUMOUR_SCORED", SCORED))
 PRED_FILE = Path(os.environ.get("PROSCOUT_RUMOUR_PREDICTIONS", PREDICTIONS))
 
 
-@st.cache_resource(show_spinner="Loading the rumour model (BERTurk × 3, LightGBM × 5)…")
+@st.cache_resource(show_spinner="Loading the rumour model…")
 def scorer():
     from models.rumours.live import Scorer
     return Scorer.load(MODEL, os.environ.get("PROSCOUT_DEVICE", "auto"))
@@ -43,9 +43,10 @@ def pct(p) -> str:
 
 st.title("Transfer rumours: how likely is the move?")
 st.caption("A rumour links a player to a club he is not at. The model gives the probability that Transfermarkt "
-           "records the move within 180 days. It combines what is known without reading the headline (how much "
-           "and how widely the pair is in the news, the player's value and age) with BERTurk reading the wording. "
-           "On 2025 rumours it ranked a true rumour above a false one 78% of the time (AUC 0.78). "
+           "records the move within 180 days, from what is known without reading the headline's wording: how much "
+           "and how widely the pair is in the news, how long it has been, the player's value and age. A registered "
+           "test found that adding BERTurk's reading of the wording gives no measurable gain, so it is not used. "
+           "On 2025 rumours the model ranked a true rumour above a false one 77% of the time (AUC 0.77). "
            "Player clubs and values come from Transfermarkt data that ends on 12 June 2026, so only headlines up "
            "to that day are scored; later moves are unknown to it. People without a market value in the two years "
            "before the headline (coaches, retired players) are left out.")
@@ -68,11 +69,11 @@ with recent:
                  "*Outcome*: the move as Transfermarkt records it, or after its end as the archived news reports it "
                  "done (at least 3 headlines from 2 papers saying \"resmen\", \"imzaladı\", \"yeni transferi\"). "
                  "Outcomes are only used to check the model, never as its input.")
-        if "auc_fusion" in check:
-            lo, hi = check["auc_fusion_95"]
+        if "auc_model" in check:
+            lo, hi = check["auc_model_95"]
             st.write(f"**How reliable were these probabilities?** For {check['known']:,} of {check['claims']:,} "
-                     f"claims the outcome is known; {check['happened']:,} happened. AUC {check['auc_fusion']:.2f} "
-                     f"(95% interval {lo:.2f}–{hi:.2f}); on the 2025 test it was 0.78. Read each row as: of the "
+                     f"claims the outcome is known; {check['happened']:,} happened. AUC {check['auc_model']:.2f} "
+                     f"(95% interval {lo:.2f}–{hi:.2f}); on the 2025 test it was 0.77. Read each row as: of the "
                      "claims given about this probability, this share happened.")
             rel = pd.DataFrame(check["reliability"]).set_index("band")
             st.dataframe(rel.rename(columns={"predicted": "mean predicted", "happened": "share that happened"})
@@ -142,13 +143,10 @@ with typed:
                 st.write(f"The rules read this as **{row.stance}**, not a rumour, so it is not scored "
                          "(the model was trained on rumours only).")
                 continue
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Probability", pct(row.p))
-            m2.metric("Without reading (metadata)", pct(row.p_metadata))
-            m3.metric("Wording alone (BERTurk)", pct(row.p_bert))
-            st.caption(f"Current club (Transfermarkt): {s.club_name(row.current_club_id)}. What the text model read: "
-                       f"`{row.text}`. The middle and right numbers are the two parts before they are combined "
-                       "and calibrated, so they need not bracket the left one.")
+            st.metric("Probability", pct(row.p))
+            st.caption(f"Current club (Transfermarkt): {s.club_name(row.current_club_id)}. The headline as the "
+                       f"model handles it, names replaced: `{row.text}`. The wording itself does not change the "
+                       "probability; the paper, the date and the news around the pair do.")
 
 # ---------------------------------------------------------------- record
 
@@ -157,10 +155,10 @@ with record:
         st.info("Run `python -m models.rumours run` to create the test predictions.")
     else:
         pred = pd.read_csv(PRED_FILE, parse_dates=["date"])
-        p = pred["p_fusion"] if "p_fusion" in pred else pred["fusion"]
-        st.write(f"The registered test: {len(pred):,} rumour claims published in 2025, "
-                 f"{pred['label'].mean():.0%} came true within 180 days. Each row's probability was made by the "
-                 "model before the outcome was known to it.")
+        p = pred["p_metadata"] if "p_metadata" in pred else pred["metadata"]
+        st.write(f"The registered test (corrected run): {len(pred):,} rumour claims published in 2025, "
+                 f"{pred['label'].mean():.0%} came true within 180 days. Each probability is the metadata model's, "
+                 "the model in use, made before the outcome was known to it.")
         bins = pd.cut(p, [0, 0.1, 0.2, 0.3, 0.5, 1.0], include_lowest=True)
         table = pd.DataFrame({"p": p, "label": pred["label"], "bin": bins}).groupby("bin", observed=True).agg(
             claims=("label", "size"), predicted=("p", "mean"), came_true=("label", "mean"))

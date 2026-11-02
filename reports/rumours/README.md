@@ -1,21 +1,69 @@
 # Transfer rumour credibility: results
 
-> **Superseded (2026-11-02).** The linking used moves dated after a headline to decide whether a last-name-only
-> player was linked (182 of the 3,162 test claims; 84% of them came true). Without those claims, from the saved
-> predictions and the same bootstrap: AUC(fusion) − AUC(metadata) +0.0095 [−0.0062, +0.0279], **not supported**;
-> BERTurk − TF-IDF +0.0206 [+0.0007, +0.0397]; metadata AUC 0.769, fusion 0.779. The results below are the first
-> run as registered. A corrected run is registered in
-> [`2026-11-02-rumour-credibility-corrected.md`](../../docs/preregistration/2026-11-02-rumour-credibility-corrected.md).
+## Corrected run (registered 2026-11-02)
+
+Pre-registration: [`docs/preregistration/2026-11-02-rumour-credibility-corrected.md`](../../docs/preregistration/2026-11-02-rumour-credibility-corrected.md) (corrected run of [`2026-10-29-rumour-credibility.md`](../../docs/preregistration/2026-10-29-rumour-credibility.md)). Run at commit `0993c43` on 2026-11-02T14:08:20+00:00.
+
+Test period 2025: 2,955 rumour claims, 1,075 player-club pairs, 20.1% came true within 180 days.
+
+### Primary outcome
+
+AUC(fusion) - AUC(metadata) = +0.0122 [-0.0046, +0.0343] (95% interval, 2,000 bootstrap resamples of player-club pairs). **Not supported.**
+
+### All models on the test period (probabilities recalibrated on validation)
+
+| model | AUC | avg precision | Brier | log loss | mean p |
+| --- | --- | --- | --- | --- | --- |
+| base | 0.5000 | 0.2010 | 0.1607 | 0.5021 | 0.211 |
+| site | 0.5306 | 0.2148 | 0.1606 | 0.5017 | 0.209 |
+| metadata | 0.7698 | 0.4277 | 0.1382 | 0.4333 | 0.205 |
+| tfidf | 0.6432 | 0.3588 | 0.1513 | 0.4765 | 0.204 |
+| bert | 0.6675 | 0.3837 | 0.1484 | 0.4680 | 0.205 |
+| fusion | 0.7821 | 0.4865 | 0.1321 | 0.4175 | 0.202 |
+| fusion_tfidf | 0.7731 | 0.4756 | 0.1337 | 0.4222 | 0.200 |
+
+### Secondary comparisons (AUC difference, 95% interval)
+
+- bert - tfidf: +0.0243 [+0.0054, +0.0433]
+- bert - metadata: -0.1023 [-0.1521, -0.0378]
+- tfidf - metadata: -0.1266 [-0.1847, -0.0579]
+- fusion_tfidf - metadata: +0.0032 [-0.0144, +0.0237]
+- fusion - fusion_tfidf: +0.0090 [+0.0014, +0.0180]
+- metadata - site: +0.2392 [+0.1694, +0.2954]
+- tfidf - site: +0.1126 [+0.0739, +0.1501]
+
+Validation AUC, fitted settings and per-paper, new-pair and target-league tables: `results.json`, `auc_by_*.csv`.
+
+### Reading the corrected result
+
+- **The wording does not add measurably to what is known without reading it.** Adding BERTurk to the metadata
+  model raises test AUC from 0.770 to 0.782 (+0.012), but the interval reaches below zero. The first run's
+  "supported" came from the leak.
+- **What predicts a rumour is how it is reported, not how it is worded:** how many papers ran the pair in the
+  last month, how long it has been in the news, and the player's value and age (metadata AUC 0.77). The paper's
+  name alone says almost nothing (0.53).
+- **BERTurk reads the headlines better than a bag of words** (+0.024 AUC alone, interval above zero), but that
+  matters only if the wording helps at all.
+- **As registered, the score in use is the metadata model alone** (`python -m models.rumours fit`).
+- Per paper, new or old pair, Turkish or foreign target: `auc_by_*.csv`. Foreign targets stay hard (fusion 0.64,
+  metadata 0.58).
+
+## First run (registered 2026-10-29), superseded
+
+> **Superseded by the corrected run above.** The linking used moves dated after a headline to decide whether a
+> last-name-only player was linked (182 of the 3,162 test claims; 84% of them came true). Without those claims,
+> from the saved predictions and the same bootstrap: AUC(fusion) − AUC(metadata) +0.0095 [−0.0062, +0.0279], not
+> supported. Kept as registered and run; its files are in git history (commit `ab73e91`).
 
 Pre-registration: [`docs/preregistration/2026-10-29-rumour-credibility.md`](../../docs/preregistration/2026-10-29-rumour-credibility.md). Run at commit `4acbe6f` on 2026-10-31T14:45:39+00:00.
 
 Test period 2025: 3,162 rumour claims, 1,109 player-club pairs, 23.4% came true within 180 days.
 
-## Primary outcome
+### Primary outcome
 
 AUC(fusion) - AUC(metadata) = +0.0154 [+0.0009, +0.0339] (95% interval, 2,000 bootstrap resamples of player-club pairs). **Supported.**
 
-## All models on the test period (probabilities recalibrated on validation)
+### All models on the test period (probabilities recalibrated on validation)
 
 | model | AUC | avg precision | Brier | log loss | mean p |
 | --- | --- | --- | --- | --- | --- |
@@ -27,7 +75,7 @@ AUC(fusion) - AUC(metadata) = +0.0154 [+0.0009, +0.0339] (95% interval, 2,000 bo
 | fusion | 0.7829 | 0.5519 | 0.1440 | 0.4499 | 0.247 |
 | fusion_tfidf | 0.7735 | 0.5439 | 0.1456 | 0.4540 | 0.247 |
 
-## Secondary comparisons (AUC difference, 95% interval)
+### Secondary comparisons (AUC difference, 95% interval)
 
 - bert - tfidf: +0.0189 [+0.0013, +0.0360]
 - bert - metadata: -0.0949 [-0.1434, -0.0346]
@@ -39,7 +87,7 @@ AUC(fusion) - AUC(metadata) = +0.0154 [+0.0009, +0.0339] (95% interval, 2,000 bo
 
 Validation AUC, fitted settings and per-paper, new-pair and target-league tables: `results.json`, `auc_by_*.csv`.
 
-## Secondary tables (test AUC)
+### Secondary tables (test AUC)
 
 | paper | claims | came true | metadata | TF-IDF | BERTurk | fusion |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -69,7 +117,7 @@ paper names were lost. The tables above were rebuilt from the saved predictions 
 each URL; no model was retrained and no registered number changed. The code now names prediction
 columns `p_<model>` and group columns `auc_<model>`.
 
-## Reading the result
+### Reading the result
 
 - **The wording adds a little, and only a little.** Adding BERTurk to the metadata model raises test AUC by
   0.015; the interval's lower end is just above zero. Almost all of what can be predicted comes from what is
@@ -86,7 +134,7 @@ columns `p_<model>` and group columns `auc_<model>`.
   grow over the years (11k moves in 2018, 17k in 2024), so older "did not happen" labels are noisier. The
   text is the URL slug, not the full headline.
 
-## Exploratory analyses (after the run, not registered)
+### Exploratory analyses (after the run, not registered)
 
 **Players with no transfer record before the article.** The metadata input "current club known" has the
 second largest gain in the GBM. Claims on players with no Transfermarkt transfer before the article
@@ -102,7 +150,7 @@ as in the study). Toward *comes true*: "istanbula", "imzaya geliyor", "bitiriyor
 headline. Concrete, late-stage language (travel, signing, talks under way) separates from early interest
 and competition. A few first names survived the masking ("josef", "larsen", "murat"); they are rare.
 
-## Changes to the code after the run
+### Changes to the code after the run
 
 - **2026-11-02, player linking:** a full-name match could use the same word as both first and last name
   ("said" in "Said El Mala" matched the player Said Ahmed Said). The first name must now be another word of
