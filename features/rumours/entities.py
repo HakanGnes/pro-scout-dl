@@ -143,8 +143,8 @@ class Gazetteer:
 
     ACTIVE_DAYS = 730
     # Rule 4 of docs/preregistration/2026-11-02-rumour-credibility-corrected.md: on only if >= 85% of 80
-    # hand-labelled headlines it links name the right player (set before the corrected run).
-    UNIQUE_SURNAME = True
+    # hand-labelled headlines it links name the right player. Measured 2026-11-02: 52 of 80 (65%), so off.
+    UNIQUE_SURNAME = False
     MIN_UNIQUE_VALUE = 1_000_000
     DOMINANCE = 5.0
 

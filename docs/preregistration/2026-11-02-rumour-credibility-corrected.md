@@ -2,7 +2,12 @@
 
 - **Registered:** 2026-11-02, before the corrected run. Committed with the code that runs it; that commit
   is the timestamp.
-- **Status:** registered, not yet run.
+- **Status:** registered, not yet run. **Rule 4 switched off** (2026-11-02, before the run): 52 of the 80
+  hand-labelled headlines it links name the right player (65%, 95% interval 54%–74%), below the 85% required.
+  Correction to rule 4's text: the 80 headlines were fixed before labelling by the rule that linked them (field
+  `rule` of the labelling items), but they are spread over items h401–h500, not h401–h480 as written. Counted by
+  position, h401–h480 give 61 of 80 (76%); the rule is off either way. The 20 headlines linked by rule 2's
+  "left the club" tie (kept when no other player is named): 16 of 20 right (80%).
 - **Why a second run:** the first run ([`2026-10-29-rumour-credibility.md`](2026-10-29-rumour-credibility.md))
   linked a last-name-only player when he moved to or from a club named in the headline within a year before
   *or after* it. A later move could therefore decide whether a headline entered the study. Leaving those claims

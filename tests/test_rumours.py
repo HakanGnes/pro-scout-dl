@@ -110,7 +110,12 @@ def test_last_name_links_use_only_the_past():
     # Kaplan moves to Fenerbahce in Aug 2025: a headline in March must not be linked through that later move
     found, _ = g.link("fenerbahce kaplan icin teklif", D("2025-03-01"))
     assert found == []
-    # Vlahovic: no tie to Fenerbahce, but Dusan (EUR 40m) is worth over 5x Vanja (EUR 6m), the other active one;
+    # rule 4 is off as registered (65% right by hand): the surname alone links nobody, and Tadic, now the only
+    # player named, stays
+    found, _ = g.link("fenerbahceden vlahovic hamlesi transferde tadic detayi", D("2026-01-10"))
+    assert [(m.id, m.how) for m in found] == [(2, "last_left")]
+    g.UNIQUE_SURNAME = True
+    # with rule 4 on: Dusan (EUR 40m) is worth over 5x Vanja (EUR 6m), the other active Vlahovic;
     # Tadic left Fenerbahce in the year before and is background when another player is named
     found, clubs_found = g.link("fenerbahceden vlahovic hamlesi transferde tadic detayi", D("2026-01-10"))
     assert [(m.id, m.how) for m in found] == [(3, "last_unique")] and [c.id for c in clubs_found] == [36]
@@ -126,6 +131,7 @@ def test_unique_surname_skips_one_name_players_and_club_words():
                               "to_club_id": [2], "from_club_name": ["A"], "to_club_name": ["B"]})
     vals = pd.DataFrame({"player_id": [1, 2], "date": [D("2021-01-01")] * 2, "market_value_in_eur": [5e6, 5e6]})
     g = Gazetteer.build(players, clubs, transfers, vals)
+    g.UNIQUE_SURNAME = True
     assert g.link("marcelo bielsadan besiktas aciklamasi", D("2021-06-01"))[0] == []
     players_found, clubs_found = g.link("besiktas paris saint germainin yildizini istiyor", D("2021-06-01"))
     assert players_found == [] and {c.id for c in clubs_found} == {114, 583}

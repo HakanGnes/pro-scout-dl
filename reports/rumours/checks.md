@@ -49,3 +49,18 @@ Main error types seen (for a later, separately registered revision; nothing is c
 - Agreements phrased as future or as the target's news ("istanbula geliyor", "imza atacağı tarih",
   "ile anlaştı" with another subject) are called rumours or other.
 - "yeni transferi" on stories about an already signed player that are not about the move.
+
+## Linking check for the corrected run (2026-11-02)
+
+100 more headlines (h401–h500 in [`hand_labels.csv`](hand_labels.csv), set `linking:<rule>`), drawn at random
+from 2018–2024 before labelling, to decide rule 4 of the corrected registration
+([`2026-11-02-rumour-credibility-corrected.md`](../../docs/preregistration/2026-11-02-rumour-credibility-corrected.md)).
+
+| rule | headlines | linked player right |
+| --- | --- | --- |
+| 4: a surname with no tie → the dominant active player who carries it | 80 | 52 (65%, 95% interval 54%–74%) |
+| 2: tied only by having left a named club (kept when no other player is named) | 20 | 16 (80%, 58%–92%) |
+
+Rule 4 needed 85% and is switched off. Its misses are mostly other people with the surname: coaches and
+officials (Rui Vitória, Burak Elmas, Graham Potter, Kenan Koçak), retired players named as go-betweens
+(Drogba), and players mentioned as background in someone else's story.
