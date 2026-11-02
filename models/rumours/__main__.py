@@ -169,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     args.predictions.parent.mkdir(parents=True, exist_ok=True)
     out = te[["url", "date", "site", "player_id", "club_id", "label", "text"]].copy()
     for m, p in final.items():
-        out[m] = p
+        out[f"p_{m}"] = p   # "p_" prefix: the "site" model must not overwrite the site column
     out.to_csv(args.predictions, index=False, compression="gzip")
 
     d = results["primary"]

@@ -54,8 +54,8 @@ def by_group(frame: pd.DataFrame, preds: dict[str, np.ndarray], col: str) -> pd.
     for key, idx in frame.groupby(col).indices.items():
         y = frame["label"].to_numpy()[idx]
         row = {col: key, "n": len(idx), "rate": round(float(y.mean()), 3)}
-        for m, p in preds.items():
-            row[m] = round(roc_auc_score(y, p[idx]), 3) if len(set(y)) > 1 else np.nan
+        for m, p in preds.items():   # "auc_" prefix: a model may share its name with the group column ("site")
+            row[f"auc_{m}"] = round(roc_auc_score(y, p[idx]), 3) if len(set(y)) > 1 else np.nan
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -101,7 +101,7 @@ def write(report_dir: Path, results: dict, groups: dict[str, pd.DataFrame], cali
                      f"{r['mean_p']:.3f} |")
     lines += ["", "## Secondary comparisons (AUC difference, 95% interval)", ""]
     lines += [f"- {k}: {_fmt(v)}" for k, v in results["secondary"].items()]
-    lines += ["", "Validation AUC, fitted settings and per-paper / per-month tables: `results.json`, `auc_by_*.csv`.", ""]
+    lines += ["", "Validation AUC, fitted settings and per-paper, new-pair and target-league tables: `results.json`, `auc_by_*.csv`.", ""]
     path = report_dir / "README.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path

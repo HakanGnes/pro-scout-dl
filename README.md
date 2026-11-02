@@ -62,6 +62,13 @@ python -m etl download-transfermarkt     # Transfermarkt open data, ~60 MB, SHA-
 python -m etl load-transfermarkt         # ~30 s; tm_* tables
 python -m features.market_value build    # 136,942 player-anchor samples -> data/processed/
 python -m models.market_value run        # the pre-registered study -> reports/market_value/
+
+# 8. Rumour credibility (Phase 4; needs pip install -e ".[dl]", a GPU helps)
+python -m etl history-index              # archive index of 8 sites, resumable (~1-2 days)
+python -m features.rumours claims        # link headlines to players/clubs, label claims -> data/processed/rumours/
+python -m etl history-titles --urls data\processed\rumours\title_urls.txt   # archived pages of rumour articles
+python -m features.rumours claims        # again, now with publication dates
+python -m models.rumours run             # the pre-registered study -> reports/rumours/
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -95,7 +102,9 @@ and change the port in `DATABASE_URL` to match.
 | `python -m etl load-news` | Load the whole news archive into `news_items` (idempotent) |
 | `python -m etl probe-archive` | Sample the Internet Archive index of 8 Turkish sports sites: how many historical transfer headlines exist |
 | `python -m etl history-index` | Walk those sites' archive index (paged, resumable); keep transfer-looking article URLs |
-| `python -m etl history-titles [--limit N]` | Fetch each candidate's archived `<title>` and description (resumable; known clubs/players first) |
+| `python -m etl history-titles [--urls FILE] [--workers 4] [--limit N]` | Fetch archived pages: title, description and publication time (resumable) |
+| `python -m features.rumours claims` | Link every archived headline to Transfermarkt players and clubs, label each (player, club) claim with whether the move happened within 180 days; writes `title_urls.txt` |
+| `python -m models.rumours run [--device cuda]` | The pre-registered Phase 4 study: paper rate, metadata GBM, TF-IDF, BERTurk, fusion; `reports/rumours/` |
 | `python -m etl history-status` | Progress of the two history steps |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
@@ -279,6 +288,47 @@ fetches the headlines, both paced at one request every 1.5 s and resumable after
 Only titles, summaries, links and dates from the feeds are stored. They stay on the collecting machine
 for research and are not redistributed.
 
+## Rumour credibility (Phase 4)
+
+Question: when a Turkish paper reports that player *p* may move to club *c*, does the wording of the
+headline tell whether the move happens, beyond what is known without reading it (which paper, how much
+the pair was in the news, who the player is)? And does a fine-tuned Turkish BERT read the wording better
+than a bag of words? Pre-registered before any model saw real data:
+[`docs/preregistration/2026-10-29-rumour-credibility.md`](docs/preregistration/2026-10-29-rumour-credibility.md).
+
+- **Data:** 286,132 transfer articles (2018–2026) from the Internet Archive index of 8 sites; the text is
+  the URL slug. Article dates come from the archived page's own publication time where fetched.
+- **Claims and labels:** each headline is linked to Transfermarkt players and clubs; a claim is (article,
+  player, club he is not at). Only headlines the rules call *rumours* are studied. Label: Transfermarkt
+  records the move within 180 days.
+- **Checked by hand first:** on 237 fresh headlines, the rumour rule is right 86% of the time and two claims
+  in three are clean rumours about the right player and target club ([`reports/rumours/checks.md`](reports/rumours/checks.md)).
+- **Split by date:** train 2018–2022, validation Jul 2023–Jun 2024, test 2025.
+- **Names masked:** the claimed player, target club and current club become placeholders, so models learn
+  how papers write, not which names came true before.
+
+**Result** (one run, 3,162 test rumour claims, 1,109 player-club pairs, 23.4% came true; full report:
+[`reports/rumours/`](reports/rumours/)):
+
+| Model | Test AUC | Brier |
+| --- | --- | --- |
+| Paper's track record | 0.535 | 0.180 |
+| TF-IDF (text only) | 0.654 | 0.167 |
+| BERTurk (text only) | 0.673 | 0.164 |
+| Metadata GBM (no text) | 0.768 | 0.150 |
+| Metadata + TF-IDF | 0.774 | 0.146 |
+| **Metadata + BERTurk** | **0.783** | **0.144** |
+
+- **Primary outcome met, narrowly:** metadata + BERTurk − metadata +0.015 AUC, 95% interval [+0.001, +0.034],
+  resampling player-club pairs. The wording adds a little; most of the signal is how much and how widely the
+  pair is in the news, and who the player is.
+- **BERTurk beats bag-of-words**, slightly (+0.019 AUC alone); only the BERTurk fusion beats metadata alone.
+- **Concrete, late-stage wording** ("İstanbul'a geliyor", "imzaya", "görüşmeler", "bitiriyor") goes with
+  rumours that come true; early interest and rivalry ("ilgileniyor", "sürprizi", "harekatı", "rakip") with ones
+  that do not.
+- **Limits:** about one claim in three is noise from linking or stance; labels depend on Transfermarkt
+  recording the move; foreign target clubs are much harder (AUC 0.68).
+
 ## Tests
 
 ```powershell
@@ -301,16 +351,18 @@ pro-scout-dl/
 ├── etl/             command line, database helpers, quality checks
 │   ├── wyscout/     parse.py (pure functions), load.py, download.py
 │   ├── transfermarkt/  download.py, tables.py (column types, raw/db readers), load.py, quality.py
-│   └── news/        feeds.py (+ feeds.json), rss.py (stdlib RSS/Atom parser), collect.py
+│   └── news/        feeds.py (+ feeds.json), rss.py, collect.py, archive.py + history.py (Internet Archive)
 ├── scripts/         install_news_task.ps1 (hourly Windows scheduled task)
 ├── tests/           parser and end-to-end tests, fictional sample data
 ├── data/            raw/ and processed/ (git-ignored)
 ├── features/        events.py: shared event + match access (raw JSON or PostgreSQL)
 │   ├── xg/          Phase 1: shot features, xG models, report, scoring
 │   ├── pass_networks/  Phase 1: graphs, node/edge features, targets, split
-│   └── market_value/   Phase 3: samples, 36-month histories, tabular summaries
+│   ├── market_value/   Phase 3: samples, 36-month histories, tabular summaries
+│   └── rumours/     Phase 4: player/club linking, stance rules, claims and labels
 ├── models/gnn/      Phase 1: baselines, DeepSets, GNN, evaluation (models/artifacts/ is git-ignored)
 ├── models/market_value/  Phase 3: baselines, LightGBM, LSTM, Transformer, bootstrap, report
+├── models/rumours/  Phase 4: masked text, metadata, TF-IDF, BERTurk, fusion, pair bootstrap, report
 ├── docs/            pre-registered experiments
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player profiles, swap simulation, sanity checks
@@ -323,6 +375,10 @@ pro-scout-dl/
 Market values, appearances and transfers: [dcaribou/transfermarkt-datasets](https://github.com/dcaribou/transfermarkt-datasets)
 (CC0 1.0), built from [Transfermarkt](https://www.transfermarkt.com/). Not redistributed here;
 `download-transfermarkt` fetches the files and records their SHA-256.
+
+Historical news headlines: URLs and archived pages from the [Internet Archive](https://web.archive.org/)
+Wayback Machine, used for research on the collecting machine and not redistributed. Turkish BERT:
+[`dbmdz/bert-base-turkish-uncased`](https://huggingface.co/dbmdz/bert-base-turkish-uncased) (MIT).
 
 Event data: the Wyscout public dataset, figshare collection
 [doi:10.6084/m9.figshare.c.4415000](https://doi.org/10.6084/m9.figshare.c.4415000) —

@@ -106,8 +106,12 @@ def test_study_end_to_end(tmp_path):
     assert lo <= res["primary"][0] <= hi
     pred = pd.read_csv(tmp_path / "pred.csv.gz")
     assert len(pred) == res["counts"]["test"] and "kesinlesti" in " ".join(pred["text"])
+    assert pred["site"].isin(["aspor", "fanatik", "fotomac", "hurriyet_spor", "milliyet_skorer", "ntvspor", "sabah_spor", "sporx"]).all()
     assert not pred["text"].str.contains("kartalspor|galatasaray|fenerbahce|besiktas").any()   # names masked
     assert (rep / "README.md").exists()
+    by_site = pd.read_csv(rep / "auc_by_site.csv")
+    assert set(by_site["site"]) <= {"aspor", "fanatik", "fotomac", "hurriyet_spor", "milliyet_skorer", "ntvspor",
+                                    "sabah_spor", "sporx"} and "auc_site" in by_site
 
 
 def test_inputs_must_match_registration(tmp_path, monkeypatch):
