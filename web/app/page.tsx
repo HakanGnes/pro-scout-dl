@@ -46,7 +46,7 @@ export default function Home() {
       <header className="home-head">
         <h1>Pro-Scout</h1>
         <p>Deep-learning models for football scouting, each tested against a simple baseline and reported as it came out,
-          including when the baseline wins. The market-value and rumour studies, and a follow-up on the passing links, were registered before they were run.</p>
+          including when the baseline wins. The market-value and rumour studies, and a follow-up on the passing links, were registered before they were run. <Link href="/method/">How the studies were done</Link>.</p>
       </header>
       <ol className="findings">
         {FINDINGS.map((f) => (

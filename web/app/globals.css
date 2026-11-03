@@ -283,3 +283,21 @@ tbody th { font-weight: 650; }
   .pairs td::before, .player-preds td::before { content: attr(data-label); display: block; font-size: 0.74rem; color: var(--ink-soft); }
   .pairs .outcome { grid-column: 1 / -1; }
 }
+
+/* ---------------------------------------------------------------- method */
+.method { display: grid; gap: 30px; }
+.method-body { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; align-items: start; }
+.toc { position: sticky; top: 20px; }
+.toc ul { list-style: none; margin: 0; padding: 0 0 0 12px; display: grid; gap: 8px; border-left: 2px solid var(--frame); font-size: 0.9rem; }
+.toc a { color: var(--ink-soft); text-decoration: none; }
+.toc a:hover { color: var(--ink); }
+.prose { max-width: 68ch; display: grid; gap: 40px; }
+.prose section { display: grid; gap: 12px; scroll-margin-top: 20px; }
+.prose h2 { font-stretch: 78%; font-weight: 750; font-size: 1.7rem; line-height: 1.1; padding-top: 14px; border-top: 2px solid var(--ink); }
+.prose p { line-height: 1.6; }
+.prose strong { font-weight: 700; }
+.prose a { color: var(--magnet); }
+@media (max-width: 960px) {
+  .method-body { grid-template-columns: 1fr; gap: 24px; }
+  .toc { position: static; }
+}

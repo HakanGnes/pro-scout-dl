@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/tactics/", label: "Tactics board" },
   { href: "/rumours/", label: "Transfer rumours" },
   { href: "/market-value/", label: "Market value" },
+  { href: "/method/", label: "Method" },
 ];
 
 export default function Nav() {
