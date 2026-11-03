@@ -46,7 +46,7 @@ Validation AUC, fitted settings and per-paper, new-pair and target-league tables
   matters only if the wording helps at all.
 - **As registered, the score in use is the metadata model alone** (`python -m models.rumours fit`).
 - **2026 rumours (use, not part of the study):** on the 650 rumours up to 30 April 2026 whose 180-day window has
-  closed, AUC 0.67 [0.57, 0.77], 26% came true against 21% predicted on average; the outcome after the
+  closed, AUC 0.67 [0.58, 0.77], 26% came true against 21% predicted on average; the outcome after the
   Transfermarkt data's end (12 June) is moves the archive reports as done. The first model's 0.75 on 2026 was
   inflated by the same leak through the news counts (see the README's "2026 check").
 - Per paper, new or old pair, Turkish or foreign target: `auc_by_*.csv`. Foreign targets stay hard (fusion 0.64,

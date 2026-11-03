@@ -353,7 +353,7 @@ reports as done), scores any headline dated up to that day, and shows the 2025 r
 value in the two years before a headline (coaches, retired players) are not treated as players.
 
 **2026 check.** On the 650 rumours up to 30 April 2026, whose 180-day window has closed in the archive, AUC is
-0.67 (95% interval 0.57–0.77); 26% came true and the model said 21% on average. This is lower than the 2025
+0.67 (95% interval 0.58–0.77); 26% came true and the model said 21% on average. This is lower than the 2025
 test (0.77), and the outcome is measured less completely: after 12 June only moves reported done by at least
 3 headlines from 2 papers are seen. Before the correction the first model showed 0.75 on 2026; that figure came
 from the same leak: with the old linking, a move between January and June added later headlines to the pair's
