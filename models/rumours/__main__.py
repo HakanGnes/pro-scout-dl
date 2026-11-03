@@ -258,7 +258,7 @@ def _score_archive(args) -> int:
 
     from etl.news.history import iter_jsonl, url_key
     from features.rumours.build import articles
-    from features.rumours.labels import claims as make_claims
+    from features.rumours.labels import HORIZON, claims as make_claims
 
     from . import live
     scorer = live.Scorer.load(args.model, args.device)
@@ -288,10 +288,14 @@ def _score_archive(args) -> int:
     pair_table.to_csv(args.out.with_name(args.out.stem + "_pairs.csv"), index=False)
 
     r = scored[scored["stance"] == "rumour"]
-    k = r[r["happened"].notna()]
+    # The check uses only claims whose 180-day window has closed: in a window still open a move that happened is
+    # known but one that did not is not yet, so counting those claims would keep only their positives.
+    closed_until = archive_end - HORIZON
+    k = r[r["happened"].notna() & (r["date"] <= closed_until)]
     check = {"start": args.start, "data_end": f"{snap:%Y-%m-%d}", "archive_end": f"{archive_end:%Y-%m-%d}",
-             "claims": int(len(r)), "known": int(len(k)), "happened": int(k["happened"].sum()),
-             "reported_moves": int(len(reported))}
+             "closed_until": f"{closed_until:%Y-%m-%d}", "claims": int(len(r)),
+             "claims_closed": int((r["date"] <= closed_until).sum()), "known": int(len(k)),
+             "happened": int(k["happened"].sum()), "reported_moves": int(len(reported))}
     if k["happened"].nunique() == 2:
         y, codes = k["happened"].to_numpy(), pd.factorize(k["player_id"].astype(str) + "-" + k["club_id"].astype(str))[0]
         members = [np.flatnonzero(codes == i) for i in range(codes.max() + 1)]
@@ -308,7 +312,8 @@ def _score_archive(args) -> int:
     (args.out.with_name(args.out.stem + "_check.json")).write_text(json.dumps(check, indent=1), encoding="utf-8")
 
     print(f"{len(r):,} rumour claims ({len(pair_table):,} player-club pairs) scored -> {args.out}")
-    print(f"Outcome known for {len(k):,}: {int(k['happened'].sum()):,} happened "
+    print(f"Checked on the {check['claims_closed']:,} claims up to {closed_until:%d %b %Y} (180-day window closed); "
+          f"outcome known for {len(k):,}: {int(k['happened'].sum()):,} happened "
           f"(Transfermarkt to {snap:%d %b %Y}, then moves reported done in the archive to {archive_end:%d %b %Y})")
     if "auc_model" in check:
         lo, hi = check["auc_model_95"]

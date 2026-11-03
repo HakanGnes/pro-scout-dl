@@ -24,7 +24,7 @@ import pandas as pd
 
 from etl.news.archive import fold
 from features.rumours.entities import Gazetteer
-from features.rumours.labels import claims as make_claims
+from features.rumours.labels import HORIZON, claims as make_claims
 
 from . import bert
 from .dataset import Names, masked_text, metadata
@@ -218,12 +218,12 @@ def reported_moves(claims: pd.DataFrame, after: pd.Timestamp) -> pd.DataFrame:
 
 
 def outcome(c: pd.DataFrame, snapshot: pd.Timestamp, reported: pd.DataFrame | None = None,
-            archive_end: pd.Timestamp | None = None, horizon_days: int = 180) -> pd.DataFrame:
+            archive_end: pd.Timestamp | None = None, horizon: pd.Timedelta = HORIZON) -> pd.DataFrame:
     """What happened within 180 days of each claim, as far as can be told: `happened` (1/0/NaN when the window
     is still open) and a readable `outcome`. Transfermarkt's record first; after its end, moves the archive
     reports as done (`reported`). Windows that run past the last day anything is known stay open."""
     dates = pd.to_datetime(c["date"])
-    end = dates + pd.Timedelta(days=horizon_days)
+    end = dates + horizon
     known_until = archive_end if (reported is not None and archive_end is not None) else snapshot
     tm = c["label"] == 1
     news = pd.Series(False, index=c.index)

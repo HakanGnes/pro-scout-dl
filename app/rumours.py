@@ -71,10 +71,14 @@ with recent:
                  "Outcomes are only used to check the model, never as its input.")
         if "auc_model" in check:
             lo, hi = check["auc_model_95"]
-            st.write(f"**How reliable were these probabilities?** For {check['known']:,} of {check['claims']:,} "
-                     f"claims the outcome is known; {check['happened']:,} happened. AUC {check['auc_model']:.2f} "
-                     f"(95% interval {lo:.2f}–{hi:.2f}); on the 2025 test it was 0.77. Read each row as: of the "
-                     "claims given about this probability, this share happened.")
+            closed = (f"the {check['claims_closed']:,} claims up to {pd.Timestamp(check['closed_until']):%d %B}, "
+                      "whose 180-day window has closed" if "closed_until" in check else f"{check['claims']:,} claims")
+            st.write(f"**How reliable were these probabilities?** Checked on {closed}: the outcome is known for "
+                     f"{check['known']:,}, and {check['happened']:,} happened. AUC {check['auc_model']:.2f} "
+                     f"(95% interval {lo:.2f}–{hi:.2f}); on the 2025 test it was 0.77. The two are not "
+                     "measured alike: after 12 June only moves the papers report as done are seen, so a move that "
+                     "happened can count here as not happened. Read each row as: of the claims given about this "
+                     "probability, this share happened.")
             rel = pd.DataFrame(check["reliability"]).set_index("band")
             st.dataframe(rel.rename(columns={"predicted": "mean predicted", "happened": "share that happened"})
                          .style.format({"mean predicted": "{:.0%}", "share that happened": "{:.0%}"}), width="stretch")

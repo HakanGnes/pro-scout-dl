@@ -347,10 +347,19 @@ recalibrated on validation) and saves it, so the model in use is the one tested 
 instead). The Transfermarkt data ends on
 12 June 2026 and knows no move after it, so nothing later is scored: a claim needs the player's club and value
 on the day, and guessing them from news would put unchecked data into the model. `score-archive` scores the
-997 rumours of January to June 2026, which come after the test year and were never seen by any model, and
-`app/rumours.py` lists them with their probability and what Transfermarkt shows by June (most 180-day windows
-are still open then), scores any headline dated up to that day, and shows the 2025 record. People with no
-market value in the two years before a headline (coaches, retired players) are not treated as players.
+916 rumours of January to June 2026, which come after the test year and were never seen by any model, and
+`app/rumours.py` lists them with their probability and outcome (Transfermarkt to 12 June, then moves the archive
+reports as done), scores any headline dated up to that day, and shows the 2025 record. People with no market
+value in the two years before a headline (coaches, retired players) are not treated as players.
+
+**2026 check.** On the 650 rumours up to 30 April 2026, whose 180-day window has closed in the archive, AUC is
+0.67 (95% interval 0.57–0.77); 26% came true and the model said 21% on average. This is lower than the 2025
+test (0.77), and the outcome is measured less completely: after 12 June only moves reported done by at least
+3 headlines from 2 papers are seen. Before the correction the first model showed 0.75 on 2026; that figure came
+from the same leak: with the old linking, a move between January and June added later headlines to the pair's
+news counts (18% of the claims that came true had a higher 30-day count, 0.1% of the rest). The current model
+fed the old counts scores 0.68 instead of 0.65 on the same January–April claims (Transfermarkt outcomes only). On the 2025
+test the two models rank claims alike (0.768 and 0.769).
 
 ## Tests
 

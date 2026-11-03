@@ -161,6 +161,10 @@ def test_fit_save_and_score_archive(tmp_path):
     assert len(scored) and scored["date"].between(D("2025-01-01"), D("2025-06-01")).all()   # nothing after the data
     r = scored[scored["stance"] == "rumour"]
     assert r["p"].between(0, 1).all() and r["outcome"].str.match(r"happened|open|did not").all()
+    check = json.loads(out.with_name("scored_check.json").read_text())
+    closed = r[r["date"] <= D(check["closed_until"])]   # only claims whose 180-day window has closed are checked
+    assert check["claims_closed"] == len(closed) and check["known"] == closed["happened"].notna().sum()
+    assert D(check["closed_until"]) == D(check["archive_end"]) - pd.Timedelta(days=180)
 
     s = Scorer.load(art, "cpu")       # the app's path: score one typed headline
     one = s.score(pd.DataFrame({"url": ["typed"], "site": ["sporx"], "date": [D("2025-05-01")],
