@@ -6,6 +6,7 @@ TF-IDF and BERTurk models, fuses metadata with each text model, and writes the r
 the 2025 test period to reports/rumours/.
 fit: the model in use, trained the same way, saved to models/artifacts/rumours/: the metadata model alone (the
 corrected run found no measurable gain from the wording); --text fits the metadata + BERTurk fusion instead.
+export-web: the web page's data (2026 pairs without headlines, the 2026 check, the 2025 record).
 score-archive: score the archived rumours from 2026 up to the end of the Transfermarkt data (June 2026), which
 no model has seen -> data/processed/rumours/scored_2026.csv.
 """
@@ -103,7 +104,20 @@ def main(argv: list[str] | None = None) -> int:
     sa.add_argument("--start", default="2026-01-01", help="first day (the 2025 test period ends on 2025-12-31)")
     sa.add_argument("--out", type=Path, default=SCORED)
     sa.add_argument("--device", default="auto")
+    w = sub.add_parser("export-web", help="2026 pairs, the 2026 check and the 2025 record for the web page")
+    w.add_argument("--scored", type=Path, default=SCORED)
+    w.add_argument("--predictions", type=Path, default=PREDICTIONS)
+    w.add_argument("--results", type=Path, default=REPORT_DIR / "results.json")
+    w.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
+    if args.command == "export-web":
+        from .web import WEB_FILE, export
+
+        scored = args.scored
+        rec = export(scored.with_name(scored.stem + "_pairs.csv"), scored.with_name(scored.stem + "_check.json"),
+                     args.predictions, args.results, args.out or WEB_FILE)
+        print(f"{len(rec['pairs']):,} pairs -> {args.out or WEB_FILE}")
+        return 0
     if args.command == "fit":
         return _fit(args)
     if args.command == "score-archive":

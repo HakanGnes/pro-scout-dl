@@ -1,4 +1,4 @@
-"""Command line: python -m models.market_value run
+"""Command line: python -m models.market_value run | export-web
 
 The pre-registered Phase 3 study (docs/preregistration/2026-10-27-market-value.md), in one run:
 persistence, age curve, LightGBM, LSTM and Transformer (5 seeds each for the trained models), then the
@@ -53,7 +53,19 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-epochs", type=int, help="tests only; the registered run uses the default")
     r.add_argument("--seeds", type=int, nargs="+", help="tests only; the registered run uses 0-4")
     r.add_argument("--allow-other-snapshot", action="store_true", help="tests only")
+    w = sub.add_parser("export-web", help="test predictions and metrics for the web page")
+    w.add_argument("--predictions", type=Path, default=PREDICTIONS)
+    w.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
+
+    if args.command == "export-web":
+        from .web import WEB_FILE, export
+
+        rec = export(args.predictions, args.out or WEB_FILE)
+        for m, v in rec["overall"].items():
+            print(f"  {rec['model_names'][m]:<12} MAE {v['mae']:.3f}, median {v['median_pct']:.1%}, within 20% {v['within_20']:.1%}")
+        print(f"{len(rec['rows']):,} test predictions of {rec['players']:,} players -> {args.out or WEB_FILE}")
+        return 0
 
     import numpy as np
     import pandas as pd

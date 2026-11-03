@@ -76,6 +76,8 @@ streamlit run app/rumours.py             # 2026 rumours, try a headline, the 202
 # 9. Tactics board (Phase 5; needs Node.js 20+ for the site)
 python -m sim export-web                 # networks, team graphs, profiles -> web/public/data/
 python -m sim rankings --workers 8       # best replacements for every XI (~1 h, resumable)
+python -m models.rumours export-web      # 2026 pairs (no headlines), 2026 check, 2025 record -> web/public/data/
+python -m models.market_value export-web # test predictions and metrics -> web/public/data/
 cd web; npm install; npm test; npm run dev   # http://localhost:3000
 ```
 
@@ -118,6 +120,8 @@ and change the port in `DATABASE_URL` to match.
 | `streamlit run app/rumours.py` | 2026 rumours with probability and outcome so far, a box to score any headline, and the 2025 test record |
 | `python -m sim export-web [--golden FILE]` | The ten networks' weights, every league team's match graphs, player profiles and season passing links for the tactics board; `web/public/data/` |
 | `python -m sim rankings [--workers 4]` | For each team's usual XI, every candidate of the same role from other teams (≥ 900 league minutes) ranked as in `swap --rank`; the top 15 go to `web/public/data/rankings/` (resumable) |
+| `python -m models.rumours export-web` | The rumours page's data: each 2026 player–club pair with its probability and outcome (no headline text), the 2026 check and the 2025 record; `web/public/data/rumours.json` |
+| `python -m models.market_value export-web` | The market-value page's data: every test prediction of the registered run and the metrics recomputed from them; `web/public/data/market_value.json` |
 | `python -m etl history-status` | Progress of the two history steps |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
@@ -239,9 +243,14 @@ costs Girona only −0.005 npxG per match). The ranking also leans heavily on bo
 for minutes, position and role. A candidate's profile comes from his own team, so results are a simulation
 under the models' assumptions, not a forecast. Full report: [`reports/swap_sim/`](reports/swap_sim/).
 
-## Tactics board (Phase 5)
+## Web site and tactics board (Phase 5)
 
-A web page ([`web/`](web/)) on which a team of 2017/18 stands as magnets at its players' median positions, with
+The site ([`web/`](web/), static Next.js) has a page for each part: the tactics board, the 2026 transfer rumours
+(each player–club pair with its probability and outcome, and how reliable the probabilities were in 2025 and
+2026) and market values (the five models' test predictions, looked up by player). Headlines are not shown on the
+rumours page; a pair is listed with how many headlines and papers ran it.
+
+The tactics board is a page on which a team of 2017/18 stands as magnets at its players' median positions, with
 the season's passing links. Pick a player, replace him by anyone from another team, replace several at once, and
 the page shows how the ten Phase 2 networks expect the team's non-penalty xG per match to change, with its spread
 across matches and across the networks (one mark per network).
