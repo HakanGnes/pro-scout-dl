@@ -21,6 +21,9 @@ capture that.
 Every deep model is compared with a simple baseline, and the result is reported even
 when the baseline wins.
 
+**Live site:** [pro-scout-lime.vercel.app](https://pro-scout-lime.vercel.app): the tactics board, the 2026 transfer
+rumours and market values, all running in the browser.
+
 ## Quick start (Windows, PowerShell)
 
 Requirements: Python 3.10+, Docker Desktop, a few GB of free disk for the raw files and the database.
