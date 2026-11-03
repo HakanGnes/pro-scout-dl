@@ -16,7 +16,7 @@ capture that.
 | 2 | Player-swap simulation + Streamlit page | done |
 | 3 | Market value: GBM vs. LSTM vs. Transformer | done |
 | 4 | Rumour credibility: BERTurk vs. metadata (wording adds nothing measurable) | done |
-| 5 | Tactics board, deployment, write-ups | planned |
+| 5 | Tactics board (web), deployment, write-ups | in progress |
 
 Every deep model is compared with a simple baseline, and the result is reported even
 when the baseline wins.
@@ -72,6 +72,11 @@ python -m models.rumours run             # the pre-registered study -> reports/r
 python -m models.rumours fit             # the model in use (metadata alone), saved -> models/artifacts/rumours/
 python -m models.rumours score-archive   # score Jan-Jun 2026 rumours -> data/processed/rumours/scored_2026.csv
 streamlit run app/rumours.py             # 2026 rumours, try a headline, the 2025 record
+
+# 9. Tactics board (Phase 5; needs Node.js 20+ for the site)
+python -m sim export-web                 # networks, team graphs, profiles -> web/public/data/
+python -m sim rankings --workers 8       # best replacements for every XI (~1 h, resumable)
+cd web; npm install; npm test; npm run dev   # http://localhost:3000
 ```
 
 On macOS/Linux use `cp .env.example .env`, `python3 -m venv .venv` and
@@ -111,6 +116,8 @@ and change the port in `DATABASE_URL` to match.
 | `python -m models.rumours fit [--text]` | Train the model in use (metadata alone, as registered; `--text` for the BERTurk fusion) exactly as in the study and save it to `models/artifacts/rumours/` |
 | `python -m models.rumours score-archive [--start 2026-01-01]` | Score the archived rumours from the start date to the end of the Transfermarkt data (12 June 2026), with what has happened by then; `data/processed/rumours/scored_2026.csv` |
 | `streamlit run app/rumours.py` | 2026 rumours with probability and outcome so far, a box to score any headline, and the 2025 test record |
+| `python -m sim export-web [--golden FILE]` | The ten networks' weights, every league team's match graphs, player profiles and season passing links for the tactics board; `web/public/data/` |
+| `python -m sim rankings [--workers 4]` | For each team's usual XI, every candidate of the same role from other teams (≥ 900 league minutes) ranked as in `swap --rank`; the top 15 go to `web/public/data/rankings/` (resumable) |
 | `python -m etl history-status` | Progress of the two history steps |
 | `python -m models.gnn evaluate [--seeds 5] [--device cuda]` | Fit 3 baselines, DeepSets and the GNN; report on test weeks and World Cup/Euro; save the GNN to `models/artifacts/` |
 
@@ -231,6 +238,26 @@ getting the ball into the box. Finishers who pass little are undervalued (replac
 costs Girona only −0.005 npxG per match). The ranking also leans heavily on box entries, which the models adjust
 for minutes, position and role. A candidate's profile comes from his own team, so results are a simulation
 under the models' assumptions, not a forecast. Full report: [`reports/swap_sim/`](reports/swap_sim/).
+
+## Tactics board (Phase 5)
+
+A web page ([`web/`](web/)) on which a team of 2017/18 stands as magnets at its players' median positions, with
+the season's passing links. Pick a player, replace him by anyone from another team, replace several at once, and
+the page shows how the ten Phase 2 networks expect the team's non-penalty xG per match to change, with its spread
+across matches and across the networks (one mark per network).
+
+- **The networks run in the browser.** They are small (DeepSets and a three-layer GINE GNN, 64 units), so they are
+  written out in TypeScript ([`web/lib/model.ts`](web/lib/model.ts)) rather than shipped as a runtime: the site is
+  static and needs no server. The weights and inputs are exported as float32 (`python -m sim export-web`).
+- **Same numbers as Python:** a test ([`web/test/parity.test.ts`](web/test/parity.test.ts)) checks each network's
+  prediction and the swap results (change, matches, both spreads, per match) against PyTorch to 5 decimals.
+- **Several swaps at once** (`Simulator.swap_many`): in every league match each replaced player on the pitch gets
+  his replacement's profile at his minutes; with one swap it gives exactly the Phase 2 result (tested). The page
+  also shows each swap alone. *Over the whole season* counts matches without a replaced player as no change.
+- **Only swaps change the prediction.** Positions on the board are the data's, not something to drag: the models
+  read a player's median position, but no check has shown that moving a player changes xG the way football would.
+- **Best replacements** are ranked in advance in Python for each team's usual XI (`python -m sim rankings`); a
+  ranking runs every candidate through all networks in every match and is too slow for a browser.
 
 ## Market value (Phase 3)
 
@@ -399,6 +426,7 @@ pro-scout-dl/
 ├── reports/xg/      xG evaluation: metrics, calibration, xG map
 ├── sim/             Phase 2: player profiles, swap simulation, sanity checks
 ├── app/             Streamlit pages: swap.py (Phase 2), rumours.py (Phase 4)
+├── web/             Phase 5: Next.js static site, tactics board; lib/ (networks in TypeScript), public/data/ (export)
 └── notebooks/
 ```
 
@@ -415,8 +443,10 @@ Wayback Machine, used for research on the collecting machine and not redistribut
 Event data: the Wyscout public dataset, figshare collection
 [doi:10.6084/m9.figshare.c.4415000](https://doi.org/10.6084/m9.figshare.c.4415000) —
 every match of the 2017/18 season in England, France, Germany, Italy and Spain, the 2018
-World Cup and Euro 2016. The data is not redistributed in this repository; `download-wyscout`
+World Cup and Euro 2016. The raw data is not redistributed in this repository; `download-wyscout`
 fetches it from the source and records each file's license in `data/raw/wyscout/manifest.json`.
+The tactics board publishes values derived from it (per-match passing networks with player counts, positions
+and links, and season profiles) in `web/public/data/`, under the dataset's CC BY 4.0 license with this credit.
 Use it for non-commercial research and cite:
 
 - Pappalardo, L., Cintia, P., Rossi, A., Massucco, E., Ferragina, P., Pedreschi, D., Giannotti, F.

@@ -5,6 +5,8 @@
   swap    one swap, or a ranking of candidates:
           python -m sim swap --team "Arsenal" --out "A. Lacazette" --in "H. Kane"
           python -m sim swap --team "Arsenal" --out "A. Lacazette" --rank --top 10
+  export-web  networks, team graphs and profiles for the tactics board -> web/public/data/
+  rankings    best replacements for every team's XI, for the board (slow; resumable)
 """
 from __future__ import annotations
 
@@ -51,6 +53,18 @@ def load_simulator(dataset_path: Path, bundle_path: Path, model_path: Path, devi
     return Simulator(graphs, bundle.profiles, ensemble), bundle
 
 
+def golden_cases(sim) -> list[tuple[int, dict[int, int]]]:
+    """Fixed swaps for the web parity test: one team's two most-used players, each for the other team's
+    most-used player of the same role, alone and together."""
+    teams = sorted(sim.by_team)[:2]
+    a, b = (sim.team_players(t)["player_id"].astype(int).tolist() for t in teams)
+    role = {p: sim.profiles[p].role for p in a + b if p in sim.profiles}
+    pick: list[int] = []
+    for p in a[:2]:
+        pick.append(next(q for q in b if role.get(q) == role.get(p) and q not in pick))
+    return [(teams[0], {a[0]: pick[0]}), (teams[0], {a[0]: pick[0], a[1]: pick[1]})]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m sim", description="Player-swap simulation")
     parser.add_argument("--dataset", type=Path, default=DATASET)
@@ -74,7 +88,19 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--rank", action="store_true", help="rank all regular players of the same role")
     s.add_argument("--min-minutes", type=float, default=900.0)
     s.add_argument("--top", type=int, default=10)
+    w = sub.add_parser("export-web", help="data for the tactics board (web/)")
+    w.add_argument("--out", type=Path, default=None)
+    w.add_argument("--golden", type=Path, default=None, help="also write reference values for the web tests")
+    rk = sub.add_parser("rankings", help="best replacements for each team's XI (run after export-web)")
+    rk.add_argument("--out", type=Path, default=None)
+    rk.add_argument("--workers", type=int, default=4)
     args = parser.parse_args(argv)
+
+    if args.command == "rankings":
+        from . import web
+
+        web.rankings(args.dataset, args.bundle, args.model, args.out or web.WEB_DATA, args.workers)
+        return 0
 
     if args.command == "build":
         from features.pass_networks import dataset
@@ -112,6 +138,15 @@ def main(argv: list[str] | None = None) -> int:
         write_report(results, args.report, {"n_models": len(sim.ensemble.nets)})
         print(f"Wrote {args.report}")
         return 0 if all(r.passed for r in results) else 1
+
+    if args.command == "export-web":
+        from . import web
+
+        web.export(sim, bundle, args.out or web.WEB_DATA)
+        if args.golden:
+            web.golden(sim, bundle, args.golden, golden_cases(sim))
+            print(f"Wrote {args.golden}")
+        return 0
 
     team = _resolve(bundle, args.team, "team", set(sim.by_team))
     roster = set(int(p) for p in sim.team_players(team)["player_id"])

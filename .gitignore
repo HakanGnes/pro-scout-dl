@@ -10,6 +10,13 @@ data/processed/*
 mlruns/
 models/artifacts/
 
+# Web site (web/public/data is the export the site serves, so it is kept)
+web/node_modules/
+web/.next/
+web/out/
+web/public/data/rankings/*.tmp
+web/tsconfig.tsbuildinfo
+
 # Environment
 .env
 .venv/

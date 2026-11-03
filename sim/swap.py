@@ -145,6 +145,87 @@ class Simulator:
         table = pd.DataFrame(rows).sort_values("delta", ascending=False).reset_index(drop=True)
         return table, results
 
+    def swap_many(self, team_id: int, swaps: dict[int, int]) -> MultiSwapResult:
+        """Several swaps at once: in every league match, each swapped player on the pitch gets his replacement's
+        profile at his minutes. A match is skipped if an incoming player is in it and is not himself swapped out
+        there (he would play twice). With one swap this is `swap`."""
+        if not swaps:
+            raise ValueError("no swaps given")
+        if len(set(swaps.values())) < len(swaps):
+            raise ValueError("the same player cannot come in twice")
+        played = {p for g in self.by_team.get(team_id, []) for k, p in enumerate(g.player_ids)
+                  if g.x[k, F["minutes_share"]] > 0}
+        for out, cand in swaps.items():
+            if out not in played:
+                raise ValueError(f"player {out} has no league minutes for team {team_id}")
+            if cand not in self.profiles:
+                raise ValueError(f"no profile for player {cand} (no league appearance of 9 minutes or more)")
+        profiles = {out: self.profiles[cand] for out, cand in swaps.items()}
+        team_games = self.by_team[team_id]
+        games = [g for g in team_games if any(g.x[k, F["minutes_share"]] > 0 for k, p in enumerate(g.player_ids)
+                                              if p in swaps)]
+
+        def on_pitch(g, p):
+            return p in g.player_ids and g.x[g.player_ids.index(p), F["minutes_share"]] > 0
+
+        keep = [j for j, g in enumerate(games)
+                if not any(c in g.player_ids and not (c in swaps and on_pitch(g, c))
+                           and not (c == out) for out, c in swaps.items())]
+        before = self._before(games)
+        after = self.ensemble.predict([apply_swaps(games[j], profiles) for j in keep])
+        delta = after - before[:, keep]
+        per_match = pd.DataFrame({
+            "match_id": [games[j].match_id for j in keep],
+            "gameweek": [games[j].gameweek for j in keep],
+            "swapped": [sum(on_pitch(games[j], p) for p in swaps) for j in keep],
+            "actual": [games[j].target for j in keep],
+            "before": before[:, keep].mean(0) if keep else [],
+            "after": after.mean(0) if keep else [],
+            "delta": delta.mean(0) if keep else [],
+        })
+        n = len(keep)
+        return MultiSwapResult(
+            team_id=team_id, swaps=dict(swaps), matches=n, skipped=len(games) - n, team_matches=len(team_games),
+            per_match=per_match,
+            delta=float(delta.mean()) if n else float("nan"),
+            se_matches=float(per_match["delta"].std(ddof=1) / np.sqrt(n)) if n > 1 else float("nan"),
+            sd_models=float(delta.mean(1).std(ddof=1)) if n and delta.shape[0] > 1 else float("nan"),
+            before=float(per_match["before"].mean()) if n else float("nan"),
+            actual=float(per_match["actual"].mean()) if n else float("nan"),
+        )
+
+
+@dataclass
+class MultiSwapResult:
+    team_id: int
+    swaps: dict[int, int]           # player out -> player in
+    matches: int                    # league matches in which at least one swapped player was on the pitch
+    skipped: int                    # of those, matches where an incoming player was already in the team's graph
+    team_matches: int               # all league matches of the team
+    per_match: pd.DataFrame         # match_id, gameweek, swapped, actual, before, after, delta
+    delta: float                    # mean change in npxG per affected match
+    se_matches: float
+    sd_models: float
+    before: float
+    actual: float
+
+    @property
+    def season_delta(self) -> float:
+        """Change per league match over the whole season (unaffected matches count as no change)."""
+        return float(self.per_match["delta"].sum() / self.team_matches) if self.team_matches else float("nan")
+
+
+def apply_swaps(g: TeamGraph, swaps: dict[int, Profile]) -> TeamGraph:
+    """A copy of `g` with every swapped player who is on the pitch replaced, each at his own minutes."""
+    x, ids = g.x.copy(), list(g.player_ids)
+    for pid, profile in swaps.items():
+        if pid in g.player_ids:
+            k = g.player_ids.index(pid)               # slots of the original graph, so swaps cannot collide
+            if g.x[k, F["minutes_share"]] > 0:
+                x[k] = profile.node_features(float(g.x[k, F["minutes_share"]]), bool(g.x[k, F["is_starter"]] > 0.5))
+                ids[k] = profile.player_id
+    return replace(g, x=x, player_ids=ids)
+
 
 def candidates_by_role(profiles: dict[int, Profile], role: str | None, min_minutes: float = 900.0,
                        exclude_team: int | None = None) -> list[int]:

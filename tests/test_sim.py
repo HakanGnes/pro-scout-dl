@@ -194,6 +194,39 @@ def test_cli_with_trained_networks(tmp_path, capsys):
     assert sim_main(common + ["swap", "--team", "Alpha", "--out", "113", "--rank", "--min-minutes", "0"]) == 0
     assert "candidates (FW" in capsys.readouterr().out
 
+    # the tactics board's data: weights decode back to the networks, rankings match `swap --rank`
+    import base64
+    import json
+
+    import torch
+
+    from models.gnn.ensemble import Ensemble
+    from sim.web import export_models
+
+    web, golden = tmp_path / "web", tmp_path / "golden.json"
+    assert sim_main(common + ["export-web", "--out", str(web), "--golden", str(golden)]) == 0
+    index = json.loads((web / "index.json").read_text())
+    assert {t["name"] for t in index["teams"]} == {"Alpha", "Beta"} and index["n_models"] == 2
+    team = json.loads((web / "teams" / "1.json").read_text())
+    assert len(team["xi"]) == 11 and len(team["matches"]) == 76
+    x = np.frombuffer(base64.b64decode(team["matches"][0]["x"]), dtype=np.float32).reshape(-1, len(NODE_FEATURES))
+    first = sorted((g for g in graphs if g.team_id == 1), key=lambda g: (g.gameweek, g.match_id))[0]
+    np.testing.assert_array_equal(x, first.x)
+    ens = Ensemble.load(model)
+    exported = export_models(ens)
+    for (_, net), rec in zip(ens.nets, exported["nets"]):
+        for key, t in net.state_dict().items():
+            a = np.frombuffer(base64.b64decode(rec["params"][key]["data"]), dtype=np.float32).reshape(rec["params"][key]["shape"])
+            np.testing.assert_array_equal(a, t.numpy())
+    g = json.loads(golden.read_text())
+    assert len(g["graphs"]) == 3 and len(g["graphs"][0]["pred"]) == 2 and len(g["swaps"]) == 2
+    assert sim_main(common + ["rankings", "--out", str(web), "--workers", "1"]) == 0
+    rk = json.loads((web / "rankings" / "1.json").read_text())
+    assert set(rk["players"]) == {str(p) for p in team["xi"]}
+    best = rk["players"]["113"]["best"]
+    assert [b[1] for b in best] == sorted((b[1] for b in best), reverse=True)
+    del torch
+
 
 def test_sanity_checks_pass_on_a_sensible_model(tmp_path):
     from sim.checks import run_all, write_report
@@ -210,3 +243,44 @@ def test_sanity_checks_pass_on_a_sensible_model(tmp_path):
     assert all(r.passed for r in results), [r.summary for r in results]
     write_report(results, tmp_path / "README.md", {"n_models": 2})
     assert "| Self-swap | pass |" in (tmp_path / "README.md").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------- several swaps at once
+
+
+def test_one_swap_in_swap_many_equals_swap():
+    graphs = league()
+    sim = Simulator(graphs, build_profiles(graphs), LinearEnsemble())
+    one, many = sim.swap(1, 11, 21), sim.swap_many(1, {11: 21})
+    assert (many.matches, many.skipped, many.team_matches) == (one.matches, one.skipped, 10)
+    assert many.delta == pytest.approx(one.delta) and many.sd_models == pytest.approx(one.sd_models)
+    np.testing.assert_allclose(many.per_match["delta"], one.per_match["delta"])
+    assert many.season_delta == pytest.approx(one.delta)          # he played every match
+
+
+def test_two_swaps_add_up_for_an_additive_model():
+    graphs = league()
+    sim = Simulator(graphs, build_profiles(graphs), LinearEnsemble())
+    both = sim.swap_many(1, {11: 21, 12: 22})                     # 2 -> 6 and 1 -> 0 box entries
+    assert both.delta == pytest.approx(sim.swap(1, 11, 21).delta + sim.swap(1, 12, 22).delta)
+    assert (both.per_match["swapped"] == 2).all()
+
+
+def test_swap_many_skips_a_match_where_the_newcomer_already_plays():
+    graphs = league()
+    sim = Simulator(graphs, build_profiles(graphs), LinearEnsemble())
+    assert sim.swap_many(1, {11: 12}).skipped == 10               # 12 would play twice
+    r = sim.swap_many(1, {11: 12, 12: 11})                        # exchanging two players' profiles is allowed
+    assert r.matches == 10 and r.delta == pytest.approx(0, abs=1e-6)
+    with pytest.raises(ValueError):
+        sim.swap_many(1, {11: 21, 12: 21})                        # one player cannot come in twice
+    with pytest.raises(ValueError):
+        sim.swap_many(1, {21: 11})                                # 21 never played for team 1
+
+
+def test_season_delta_counts_matches_the_player_missed():
+    graphs = league() + [graph(11, 1, {12: node("MD", box=1), 13: node("FW", box=2)}, week=11)]
+    sim = Simulator(graphs, build_profiles(graphs), LinearEnsemble())
+    r = sim.swap_many(1, {11: 21})
+    assert r.matches == 10 and r.team_matches == 11
+    assert r.season_delta == pytest.approx(r.delta * 10 / 11)
